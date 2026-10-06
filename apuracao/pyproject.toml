@@ -1,0 +1,43 @@
+[project]
+name = "apuracao"
+version = "0.1.0"
+description = "Apuração em tempo real das eleições brasileiras (dados oficiais do TSE) + acervo histórico"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "httpx>=0.27",
+  "pydantic>=2.7",
+  "orjson>=3.10",
+  "fastapi>=0.111",
+  "uvicorn[standard]>=0.30",
+  "duckdb>=1.0",
+  "typer>=0.12",
+  "rich>=13",
+]
+
+[project.optional-dependencies]
+s3 = ["boto3>=1.34"]
+dev = ["pytest>=8", "pytest-asyncio>=0.23", "respx>=0.21", "ruff>=0.5"]
+# ETL do acervo histórico (historico/): só o que já não está nas dependências principais.
+historico = ["duckdb>=1.1", "httpx>=0.27", "typer>=0.12", "rich>=13"]
+
+[project.scripts]
+apuracao = "apuracao.cli:app"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["apuracao", "historico"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+ignore = ["DTZ007"]  # datas do TSE são "dd/mm/aaaa" sem fuso; convertemos explicitamente depois
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
