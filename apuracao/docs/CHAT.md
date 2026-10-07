@@ -1,0 +1,85 @@
+# Chat ao vivo (acesso pago, R$ 5) — contrato
+
+Serviço separado do coletor e do CDN: `apuracao/chat/` (FastAPI + WebSocket), porta 8001 em dev.
+Base pública configurável no frontend por `VITE_CHAT_BASE` (padrão `/chat`, proxy em dev).
+
+Fluxo: **pagar R$ 5 (PIX ou cartão) → receber token de acesso → conectar no WebSocket.**
+O pagamento é único (não é assinatura) e vale para toda a apuração (token com validade de 7 dias).
+
+## Endpoints HTTP
+
+### `POST /chat/checkout`
+Body: `{ "apelido": "Maria", "retorno": "https://site/…" }`
+Resposta: `{ "url": "https://checkout.stripe.com/…", "ref": "cs_…" }`
+
+- `apelido`: 2–24 caracteres, letras/números/espaço/`_`; é validado e normalizado no servidor.
+- O cliente redireciona o navegador para `url`. Ao concluir, o provedor volta para
+  `retorno?chat_ref=<ref>`.
+- Em desenvolvimento (`CHAT_PAGAMENTO=dev`) a `url` já é o próprio `retorno?chat_ref=…`, sem cobrar.
+
+### `GET /chat/acesso?ref=<ref>`
+Resposta `200`: `{ "token": "<jwt>", "apelido": "Maria", "expira_em": "2026-10-27T…" }`
+Resposta `402`: `{ "detail": "pagamento pendente" }` (PIX ainda não compensou; o cliente pode
+tentar de novo a cada 3 s). `404` ref desconhecida.
+
+O cliente guarda `token` em `localStorage` (`chat_token`) e `apelido`.
+
+### `GET /chat/estado`
+`{ "online": 1234, "aberto": true, "preco_centavos": 500, "mensagens_total": 98765 }`
+Público, cacheável por 5 s. Serve para mostrar "1.234 pessoas no chat" no paywall.
+
+### `POST /chat/webhook/stripe`
+Webhook do Stripe (`checkout.session.completed`, `checkout.session.async_payment_succeeded`
+para PIX). Marca o pagamento como `pago`.
+
+## WebSocket `GET /chat/ws?token=<jwt>`
+
+Fecha com código `4401` se o token for inválido/expirado, `4429` se excedeu o limite.
+
+Mensagens **servidor → cliente** (JSON, uma por frame):
+```json
+{ "tipo": "historico", "mensagens": [ …até 50 itens do tipo "msg"… ] }
+{ "tipo": "msg", "id": "01J…", "apelido": "Maria", "texto": "Vai virar!", "t": "2026-10-25T19:02:11-03:00", "eu": false }
+{ "tipo": "sistema", "texto": "Flavio Bolsonaro 50,4% × Lula 49,6% — 71,2% das seções", "t": "…" }
+{ "tipo": "presenca", "online": 1234 }
+{ "tipo": "erro", "codigo": "rate_limit" | "texto_invalido" | "bloqueado", "texto": "…" }
+```
+
+Mensagens **cliente → servidor**:
+```json
+{ "tipo": "msg", "texto": "Vai virar!" }
+{ "tipo": "ping" }
+```
+
+Regras: texto 1–280 caracteres, sem URLs (removidas), 1 mensagem a cada 2 s por usuário,
+filtro de palavras (`data/ref/chat-bloqueio.txt`, uma por linha), mensagens de `sistema` geradas
+pelo servidor quando o placar muda (lê `br.json` publicado).
+
+Escala: 1 processo atende ~10k conexões; vários processos compartilham mensagens via Redis
+pub/sub (`CHAT_REDIS_URL`). Sem Redis, funciona em memória (1 processo, dev).
+
+## Variáveis de ambiente
+
+```
+CHAT_PAGAMENTO=dev|stripe
+CHAT_PRECO_CENTAVOS=500
+CHAT_JWT_SECRET=<segredo longo>
+CHAT_DB=data/chat.sqlite
+CHAT_REDIS_URL=redis://localhost:6379/0   (opcional)
+CHAT_DADOS_BASE=http://127.0.0.1:8000/dados   (de onde ler ativo.json/br.json p/ mensagens de sistema)
+STRIPE_SECRET_KEY=sk_…
+STRIPE_WEBHOOK_SECRET=whsec_…
+```
+
+## Frontend — comportamento
+
+- Painel de chat: coluna à direita no desktop (≥1100 px), *bottom sheet* no celular com um
+  botão flutuante "Chat ao vivo · 1.234 online".
+- Sem token: *paywall* com preço, o que inclui ("chat ao vivo durante toda a apuração"),
+  campo de apelido, botão "Pagar R$ 5 e entrar" → `POST /chat/checkout` → redirect.
+- Ao voltar com `?chat_ref=` na URL: chama `GET /chat/acesso` (repete a cada 3 s enquanto 402,
+  mostrando "aguardando confirmação do PIX…"), guarda o token, limpa o parâmetro da URL.
+- Com token: conecta no WS, mostra histórico, mensagens (as minhas alinhadas à direita),
+  mensagens de sistema em destaque discreto, contador de online, estado da conexão
+  (reconnect com backoff), input com contador de caracteres e Enter para enviar.
+- Token expirado/inválido (4401): apaga o token e volta ao paywall.

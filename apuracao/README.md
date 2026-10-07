@@ -81,6 +81,26 @@ apuracao/
   tests/               pytest com fixtures reais do TSE
 ```
 
+## Chat ao vivo (acesso pago, R$ 5)
+
+Serviço separado em `chat/` (contrato em `docs/CHAT.md`): pagamento único via Stripe Checkout
+(PIX ou cartão) → token de acesso (JWT, 7 dias) → WebSocket. Moderação básica (URLs removidas,
+lista de termos em `data/ref/chat-bloqueio.txt`, 1 mensagem a cada 2 s), histórico das últimas
+50 mensagens, contador de presença e mensagens automáticas de sistema quando o placar muda.
+
+```bash
+# desenvolvimento: sem cobrança (CHAT_PAGAMENTO=dev), 1 processo em memória
+CHAT_PAGAMENTO=dev python -m chat                 # porta 8001
+
+# produção: Stripe + Redis (vários processos compartilham mensagens e presença)
+CHAT_PAGAMENTO=stripe CHAT_JWT_SECRET=... STRIPE_SECRET_KEY=sk_... STRIPE_WEBHOOK_SECRET=whsec_... \
+CHAT_REDIS_URL=redis://localhost:6379/0 python -m chat
+```
+
+Webhook do Stripe: `POST /chat/webhook/stripe` (eventos `checkout.session.completed` e
+`checkout.session.async_payment_succeeded`). O frontend aponta para o serviço por
+`VITE_CHAT_BASE` (padrão `/chat`, com proxy em dev).
+
 ## Fonte e uso dos dados
 
 Dados oficiais do Tribunal Superior Eleitoral (resultados.tse.jus.br e dadosabertos.tse.jus.br),

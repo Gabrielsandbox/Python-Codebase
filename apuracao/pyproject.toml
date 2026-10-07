@@ -17,6 +17,7 @@ dependencies = [
 
 [project.optional-dependencies]
 s3 = ["boto3>=1.34"]
+chat = ["pyjwt>=2.8", "stripe>=10", "redis>=5", "websockets>=12"]
 dev = ["pytest>=8", "pytest-asyncio>=0.23", "respx>=0.21", "ruff>=0.5"]
 # ETL do acervo histórico (historico/): só o que já não está nas dependências principais.
 historico = ["duckdb>=1.1", "httpx>=0.27", "typer>=0.12", "rich>=13"]
@@ -29,7 +30,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["apuracao", "historico"]
+packages = ["apuracao", "historico", "chat"]
 
 [tool.ruff]
 line-length = 100

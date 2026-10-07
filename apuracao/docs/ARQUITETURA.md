@@ -96,6 +96,35 @@ Pagamentos no Brasil: **PIX + cartão** via Stripe (já opera PIX no BR) ou Asaa
 boleto. Cobrança em BRL, nota fiscal via integração (ex.: eNotas/NFE.io). LGPD: só e-mail e
 dados de cobrança; política de privacidade e termo de uso simples.
 
+## 4b. Chat ao vivo (R$ 5, pagamento único) e o "pulso" de 1 segundo
+
+**Produto**: quem pagar R$ 5 (PIX ou cartão, pagamento único) entra no chat durante toda a
+apuração. É a primeira receita do dia, antes do acervo, e cria um segundo motivo para ficar na
+página. Contrato completo em `CHAT.md`.
+
+**Por que um serviço separado**: o chat é a única parte com estado por usuário e conexões
+abertas. Ele fica fora do caminho do CDN; se cair, o mapa e o placar continuam. Capacidade:
+~10 mil conexões por processo; com Redis (pub/sub + histórico + presença) escala horizontalmente
+em poucos processos. Para 100 mil simultâneos no chat: ~10 processos pequenos + 1 Redis.
+
+**Pagamento**: Stripe Checkout em BRL com `pix` e `card`. PIX compensa em segundos mas é
+assíncrono: o cliente volta com `?chat_ref=` e consulta `/chat/acesso` a cada 3 s até o webhook
+(ou a verificação ativa) confirmar. Token JWT de 7 dias, sem cadastro nem senha: só um apelido.
+Trocar de provedor (Mercado Pago, Asaas) é implementar uma classe de ~40 linhas em
+`chat/pagamentos.py`.
+
+**Moderação**: sem links, 280 caracteres, 1 mensagem a cada 2 s, lista de termos bloqueados
+(`data/ref/chat-bloqueio.txt`), bloqueio por usuário (tabela `bloqueados`), auditoria de todas
+as mensagens em SQLite. Falta (decisão de produto): moderadores humanos e botão de denúncia.
+
+**Mensagens de sistema**: o próprio chat lê `br.json` e, a cada mudança do TSE, publica
+"Fulano 50,4% × Beltrano 49,6% — 71,2% das seções". Com Redis, só um processo publica (lock).
+
+**"Atualizado por segundo"**: o TSE muda os números ~1x/min e o site consulta a cada 10 s. Em
+vez de inventar números intermediários, a interface mostra um pulso honesto: ponto batendo a
+cada segundo, contador "há N s", anel de 10 s até a próxima verificação, barra de progresso no
+topo, flash verde e "novos dados" quando algo muda, hora da última mudança do TSE.
+
 ## 5. Infra e custos (ordem de grandeza)
 
 | Componente | Opção recomendada | Custo/mês |
@@ -104,6 +133,8 @@ dados de cobrança; política de privacidade e termo de uso simples.
 | Bucket + CDN + site | Cloudflare R2 + Pages (egress grátis) | US$ 0–5 |
 | Acervo (Parquet) | R2 (~20–50 GB com seções) | US$ 1–2 |
 | API do acervo | 1 container FastAPI + DuckDB (Railway) | US$ 10 |
+| Chat ao vivo | 2–10 processos `python -m chat` + Redis gerenciado | US$ 15–60 (só no mês da eleição) |
+| Pagamentos do chat | Stripe: ~3,99% + R$ 0,39 no cartão, ~1,19% no PIX (R$ 5 → ~R$ 4,55 / R$ 4,94 líquidos) | % das vendas |
 | Auth + billing | Supabase Auth + Stripe | % das vendas |
 | Domínio | `.com.br` | ~R$ 40/ano |
 

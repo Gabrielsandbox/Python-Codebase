@@ -7,8 +7,9 @@ WORKDIR /app
 COPY pyproject.toml README.md ./
 COPY apuracao ./apuracao
 COPY historico ./historico
+COPY chat ./chat
 COPY data/ref ./data/ref
-RUN pip install --no-cache-dir ".[s3,historico]" || pip install --no-cache-dir ".[s3]"
+RUN pip install --no-cache-dir ".[s3,historico,chat]"
 
 VOLUME ["/app/data"]
 EXPOSE 8000

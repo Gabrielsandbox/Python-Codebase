@@ -13,3 +13,20 @@ services:
     volumes: ["./data:/app/data", "./web/public:/app/web/public:ro"]
     ports: ["8000:8000"]
     restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    restart: unless-stopped
+
+  chat:
+    build: .
+    entrypoint: ["python", "-m", "chat"]
+    env_file: [.env]
+    environment:
+      CHAT_REDIS_URL: redis://redis:6379/0
+      CHAT_DADOS_BASE: http://api:8000/dados
+    volumes: ["./data:/app/data"]
+    ports: ["8001:8001"]
+    depends_on: [redis, api]
+    restart: unless-stopped
