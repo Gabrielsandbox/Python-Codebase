@@ -1,7 +1,13 @@
 // Sala do chat: lista de mensagens (virtualização leve), autoscroll, compositor e avisos.
+// Extensões (docs/CHAT.md): salas por estado (reconexão com `&sala=`), reações em
+// explosão e termômetro da torcida.
 
-import { el, fmtHora } from '../format';
+import { el, fmtHora, nomeProprio } from '../format';
+import type { Store } from '../store';
 import { ChatSocket, MAX_TEXTO, type Conexao, type MsgChat, type MsgServidor, type MsgSistema, type Sessao } from './client';
+import { montarReacoes, type Torcida } from './reacoes';
+import { nomeSala, SALA_GERAL, salaValida } from './salas';
+import { montarTermometro } from './termometro';
 
 const MAX_DOM = 300; // mensagens mantidas no DOM
 const MAX_IDS = 600; // ids lembrados para deduplicar histórico em reconexões
@@ -10,23 +16,40 @@ const TRAVA_ENVIO_MS = 1500;
 
 export interface Sala {
   raiz: HTMLElement;
-  ligar(sessao: Sessao): void;
+  /** Conecta (ou reconecta) na sala dada; a anterior é fechada. */
+  ligar(sessao: Sessao, sala?: string): void;
   desligar(): void;
   readonly conectado: boolean;
+  /** Sala conectada no momento ('geral' ou sigla). */
+  readonly sala: string;
+  /** Mostra (ou esconde, com null) o chip "entrar na sala XX" do deep link. */
+  sugerirSala(uf: string | null): void;
 }
 
 export interface SalaOpts {
+  store: Store;
   aoPresenca: (online: number) => void;
   aoConexao: (estado: Conexao) => void;
   aoExpirar: () => void;
   /** Usuário pediu para sair (apaga a sessão local). */
   aoSair: () => void;
+  /** Usuário aceitou a sugestão de sala (chip) ou a sala foi recusada pelo servidor. */
+  aoTrocarSala: (sala: string) => void;
 }
 
 export function montarSala(opts: SalaOpts): Sala {
+  const { store } = opts;
   const lista = el('div', { class: 'chat-msgs', role: 'log', 'aria-label': 'Mensagens', tabindex: 0 });
   const vazio = el('p', { class: 'chat-vazio', text: 'Ninguém falou ainda. Seja a primeira pessoa a comentar!' });
   const scroller = el('div', { class: 'chat-scroll' }, lista);
+  const termo = montarTermometro();
+  const reacoes = montarReacoes({ aoReagir: (valor) => !!socket?.enviarReacao(valor) });
+  const sugestaoBtn = el('button', { class: 'chat-sugestao', type: 'button' });
+  const sugestao = el('div', { class: 'chat-sugestao-wrap', hidden: true }, sugestaoBtn);
+  let ufSugerida: string | null = null;
+  sugestaoBtn.addEventListener('click', () => {
+    if (ufSugerida) opts.aoTrocarSala(ufSugerida);
+  });
   const pill = el('button', { class: 'chat-pill', type: 'button', hidden: true }, el('span', { text: '↓ novas mensagens' }));
   const toast = el('div', { class: 'chat-toast', role: 'status', hidden: true });
 
@@ -53,10 +76,12 @@ export function montarSala(opts: SalaOpts): Sala {
     el('div', { class: 'chat-compose-foot' }, quem, btnSair, dica, contador),
   );
 
-  const raiz = el('div', { class: 'chat-sala' }, scroller, pill, toast, form);
+  const raiz = el('div', { class: 'chat-sala' }, sugestao, termo.raiz, el('div', { class: 'chat-scroll-wrap' }, scroller, reacoes.camada), pill, toast, reacoes.barra, form);
 
   // ---------------------------------------------------------------- estado
   let socket: ChatSocket | null = null;
+  let salaAtual = SALA_GERAL;
+  let avisoSalaPendente = false;
   let presoAoFim = true;
   let naoLidas = 0;
   let podarPendente = false;
@@ -126,6 +151,33 @@ export function montarSala(opts: SalaOpts): Sala {
     txt.textContent = m.texto;
     return el('div', { class: 'm-sys', role: 'note' }, el('i', { class: 'live-dot', 'aria-hidden': 'true' }), txt, el('time', { class: 'num', datetime: m.t, text: horaSegura(m.t) }));
   };
+  /** Aviso local (não vem do servidor): em que sala estamos. */
+  const noSala = (sala: string): HTMLElement => {
+    const nome = nomeSala(sala, (s) => store.refUfs[s]?.nome);
+    return el(
+      'div',
+      { class: 'm-sys m-sala', role: 'note' },
+      el('span', { class: 's-text', text: sala === SALA_GERAL ? 'Você está na sala Geral · Brasil' : `Você está na sala ${nome} (${sala})` }),
+    );
+  };
+  const avisarSala = () => {
+    if (!avisoSalaPendente) return;
+    avisoSalaPendente = false;
+    vazio.remove();
+    lista.append(noSala(salaAtual));
+    irAoFim();
+  };
+
+  // finalistas (store.principais) para os botões de torcida e o termômetro
+  const torcidas = (): Torcida[] =>
+    store.principais.map((i) => ({ id: store.meta.cands[i], nome: nomeProprio(store.cand(i)?.nome ?? '?'), cor: store.paleta.cores[i] }));
+  const aplicarTorcidas = () => {
+    const t = torcidas();
+    reacoes.setTorcidas(t);
+    termo.setCandidatos(t);
+  };
+  aplicarTorcidas();
+  store.on(['meta', 'br', 'tema'], aplicarTorcidas);
 
   const mostrarToast = (txt: string, tom: 'erro' | 'info' = 'erro') => {
     toast.textContent = txt;
@@ -147,8 +199,17 @@ export function montarSala(opts: SalaOpts): Sala {
           podar();
           irAoFim();
         } else if (!lista.children.length) lista.append(vazio);
+        avisarSala();
         break;
       }
+      case 'reacoes':
+        reacoes.explodir(m.contagem);
+        break;
+      case 'termometro':
+        termo.atualizar(m);
+        break;
+      case 'pong':
+        break;
       case 'msg':
         if (typeof m.id !== 'string' || !lembrarId(m.id)) return;
         anexar(noMsg(m));
@@ -225,13 +286,25 @@ export function montarSala(opts: SalaOpts): Sala {
   });
 
   // ---------------------------------------------------------------- ciclo de vida
+  const renderSugestao = () => {
+    const mostrar = !!ufSugerida && ufSugerida !== salaAtual;
+    sugestao.hidden = !mostrar;
+    if (mostrar) sugestaoBtn.textContent = `entrar na sala ${ufSugerida}`;
+    sugestaoBtn.title = mostrar ? `Conversar só com quem acompanha ${nomeSala(ufSugerida!, (s) => store.refUfs[s]?.nome)}` : '';
+  };
+
   const sala: Sala = {
     raiz,
     get conectado() {
       return !!socket?.aberto;
     },
-    ligar(s) {
+    get sala() {
+      return salaAtual;
+    },
+    ligar(s, novaSala = salaAtual) {
       sala.desligar();
+      salaAtual = salaValida(novaSala) ? novaSala : SALA_GERAL;
+      raiz.dataset.sala = salaAtual;
       quem.textContent = s.apelido ? `como ${s.apelido}` : '';
       lista.replaceChildren(vazio);
       ids.length = 0;
@@ -239,25 +312,44 @@ export function montarSala(opts: SalaOpts): Sala {
       presoAoFim = true;
       naoLidas = 0;
       pill.hidden = true;
+      avisoSalaPendente = true;
+      reacoes.limpar();
+      termo.limpar();
+      renderSugestao();
       atualizarContador();
-      socket = new ChatSocket(s.token, {
-        onConexao: (estado, tentativa) => {
-          raiz.dataset.conexao = estado;
-          input.disabled = estado === 'desligado';
-          opts.aoConexao(estado);
-          if (estado === 'reconectando' && tentativa >= 3) mostrarToast('Sem conexão com o chat. Tentando de novo…', 'info');
+      socket = new ChatSocket(
+        s.token,
+        {
+          onConexao: (estado, tentativa) => {
+            raiz.dataset.conexao = estado;
+            input.disabled = estado === 'desligado';
+            reacoes.setAtivo(estado === 'aovivo');
+            opts.aoConexao(estado);
+            if (estado === 'reconectando' && tentativa >= 3) mostrarToast('Sem conexão com o chat. Tentando de novo…', 'info');
+          },
+          onMensagem: aoMensagem,
+          onExpirado: () => {
+            socket = null;
+            opts.aoExpirar();
+          },
+          onSalaInvalida: () => {
+            socket = null;
+            mostrarToast('Essa sala não existe. Voltando para a Geral.', 'info');
+            opts.aoTrocarSala(SALA_GERAL);
+          },
         },
-        onMensagem: aoMensagem,
-        onExpirado: () => {
-          socket = null;
-          opts.aoExpirar();
-        },
-      });
+        salaAtual,
+      );
     },
     desligar() {
       socket?.fechar();
       socket = null;
       destravar();
+      reacoes.setAtivo(false);
+    },
+    sugerirSala(uf) {
+      ufSugerida = uf && salaValida(uf) ? uf : null;
+      renderSugestao();
     },
   };
   return sala;

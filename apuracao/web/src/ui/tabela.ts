@@ -2,6 +2,7 @@
 
 import { el, fmtPct, nomeProprio } from '../format';
 import type { Store } from '../store';
+import { linkFonte, urlFonteUf } from '../recursos/fonte';
 
 type Coluna = { id: string; rotulo: string; num: boolean; cand?: number; swatch?: string };
 
@@ -94,7 +95,7 @@ export function montarTabela(raiz: HTMLElement, store: Store, onUf: (sigla: stri
         const tr = el(
           'tr',
           { tabindex: 0, 'data-uf': sigla },
-          el('td', { class: 'uf-name l' }, r.nome, el('small', { text: sigla })),
+          el('td', { class: 'uf-name l' }, r.nome, el('small', { text: sigla }), linkFonte(urlFonteUf(store, sigla), { icone: true })),
           el(
             'td',
             { class: 'num' },

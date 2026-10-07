@@ -32,6 +32,17 @@ export interface Meta {
   atualizado_em: string;
   cands: string[];
   candidatos: Record<string, Candidato>;
+  /** URLs dos JSONs oficiais do TSE (docs/RECURSOS.md §4); ausente em snapshots antigos. */
+  fonte?: MetaFonte;
+}
+
+export interface MetaFonte {
+  catalogo?: string;
+  br?: string;
+  /** Template com `{uf}` (minúsculo). */
+  uf?: string;
+  /** Template com `{uf}` (minúsculo) e `{tse}` (código TSE de 5 dígitos). */
+  municipio?: string;
 }
 
 export interface Secoes {
@@ -71,6 +82,8 @@ export interface Resultado {
   margem_pct: number;
   situacao: Record<string, string>;
   definido: boolean;
+  /** URL do JSON oficial do TSE já resolvida (docs/RECURSOS.md §4). */
+  fonte?: string;
 }
 
 export interface Br extends Resultado {
@@ -124,6 +137,49 @@ export interface Timeline {
   schema: 1;
   cands: string[];
   pontos: TimelinePonto[];
+}
+
+/** caminho.json — aritmética dos votos que faltam (docs/RECURSOS.md §1). */
+export interface CaminhoLugar {
+  votos_est: number;
+  secoes: number;
+  pct_secoes_restantes: number;
+  /** Divisão do 1º turno só entre os dois finalistas, na ordem de `cands`. */
+  base_pct: [number, number] | number[];
+}
+export interface CaminhoMunicipio {
+  ibge: string;
+  nome: string;
+  uf: string;
+  votos_est: number;
+  pct_secoes: number;
+  base_pct: [number, number] | number[];
+}
+export interface Caminho {
+  schema: 1;
+  atualizado_em: string;
+  base: { eleicao: string; descricao: string };
+  cands: string[];
+  restante: { votos_est: number; secoes: number; pct_secoes: number; municipios_abertos: number };
+  necessario: Record<string, number | null>;
+  definido_matematicamente: string | null;
+  por_regiao: Record<string, CaminhoLugar>;
+  por_uf: Record<string, CaminhoLugar>;
+  maiores_abertos: CaminhoMunicipio[];
+}
+
+/** ritmo.json — velocidade da apuração (docs/RECURSOS.md §2). */
+export interface Ritmo {
+  schema: 1;
+  atualizado_em: string;
+  secoes_por_min: number;
+  votos_por_min: number;
+  janela_min: number;
+  amostras: number;
+  eta_90: string | null;
+  eta_100: string | null;
+  inicio: string | null;
+  fase: 'aguardando' | 'acelerando' | 'ritmo' | 'cauda' | 'concluida';
 }
 
 export interface Status {

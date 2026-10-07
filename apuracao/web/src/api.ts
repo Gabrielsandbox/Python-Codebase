@@ -1,6 +1,6 @@
 // Leitura dos snapshots estáticos + polling com pausa quando a aba está oculta.
 
-import type { Ativo, Br, Meta, Mun, Status, Timeline, Uf } from './types';
+import type { Ativo, Br, Caminho, Meta, Mun, Ritmo, Status, Timeline, Uf } from './types';
 
 export const DADOS_BASE: string = (import.meta.env.VITE_DADOS_BASE as string | undefined)?.replace(/\/$/, '') || '/dados';
 
@@ -35,15 +35,19 @@ export const urls = (prefixo: string) => ({
   mun: `${prefixo}/mun.json`,
   status: `${prefixo}/status.json`,
   timeline: `${prefixo}/timeline/br.json`,
+  caminho: `${prefixo}/caminho.json`,
+  ritmo: `${prefixo}/ritmo.json`,
 });
 
-export type Chave = 'br' | 'uf' | 'mun' | 'status' | 'timeline';
+export type Chave = 'br' | 'uf' | 'mun' | 'status' | 'timeline' | 'caminho' | 'ritmo';
 export interface Payloads {
   br: Br;
   uf: Uf;
   mun: Mun;
   status: Status;
   timeline: Timeline;
+  caminho: Caminho;
+  ritmo: Ritmo;
   meta: Meta;
 }
 
@@ -53,6 +57,8 @@ export const INTERVALOS: Record<Chave, number> = {
   status: 10_000,
   mun: 60_000,
   timeline: 30_000,
+  caminho: 10_000,
+  ritmo: 10_000,
 };
 
 interface Tarefa {

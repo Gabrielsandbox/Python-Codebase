@@ -13,6 +13,8 @@ export interface Estado {
   aberto: boolean;
   preco_centavos: number;
   mensagens_total: number;
+  /** Extensão (salas): online por sala, só salas com gente. */
+  salas?: Record<string, number>;
 }
 export interface Checkout {
   url: string;
@@ -31,6 +33,7 @@ export interface MsgChat {
   texto: string;
   t: string;
   eu: boolean;
+  sala?: string;
 }
 export interface MsgSistema {
   tipo: 'sistema';
@@ -50,7 +53,25 @@ export interface MsgErro {
   codigo: 'rate_limit' | 'texto_invalido' | 'bloqueado' | string;
   texto: string;
 }
-export type MsgServidor = MsgChat | MsgSistema | MsgHistorico | MsgPresenca | MsgErro;
+export interface MsgReacoes {
+  tipo: 'reacoes';
+  janela_s: number;
+  /** "🔥" | "👏" | … | "torcida:<id>" → contagem na janela. */
+  contagem: Record<string, number>;
+}
+export interface MsgTermometro {
+  tipo: 'termometro';
+  janela_min: number;
+  torcida: Record<string, number>;
+  total: number;
+}
+export interface MsgPong {
+  tipo: 'pong';
+}
+export type MsgServidor = MsgChat | MsgSistema | MsgHistorico | MsgPresenca | MsgErro | MsgReacoes | MsgTermometro | MsgPong;
+
+export const REACOES_EMOJI = ['🔥', '👏', '😱', '😂', '🇧🇷'] as const;
+export const MAX_REACOES_S = 5;
 
 export class ChatHttpError extends Error {
   constructor(public status: number, public detail: string) {
@@ -122,6 +143,8 @@ export interface SocketOuvintes {
   onMensagem: (m: MsgServidor) => void;
   /** Token recusado (4401): a sessão deve ser apagada. */
   onExpirado: () => void;
+  /** Sala recusada (4400): o chamador deve voltar à sala geral. */
+  onSalaInvalida?: () => void;
 }
 
 const decoder = new TextDecoder();
@@ -129,11 +152,11 @@ const BACKOFF_MIN = 1_000;
 const BACKOFF_MAX = 30_000;
 const PING_MS = 25_000;
 
-function urlWs(token: string): string {
+function urlWs(token: string, sala: string): string {
   const base = new URL(CHAT_BASE, location.href);
   base.protocol = base.protocol === 'https:' ? 'wss:' : 'ws:';
   base.pathname = base.pathname.replace(/\/$/, '') + '/ws';
-  base.search = `?token=${encodeURIComponent(token)}`;
+  base.search = `?token=${encodeURIComponent(token)}&sala=${encodeURIComponent(sala)}`;
   return base.toString();
 }
 
@@ -149,6 +172,8 @@ export class ChatSocket {
   constructor(
     private token: string,
     private ouvintes: SocketOuvintes,
+    /** Sala (docs/CHAT.md › Extensões): 'geral' ou sigla de UF em maiúsculas. */
+    readonly sala: string = 'geral',
   ) {
     this.abrir();
     document.addEventListener('visibilitychange', this.aoVisibilidade);
@@ -167,7 +192,7 @@ export class ChatSocket {
     this.ouvintes.onConexao(this.tentativa === 0 ? 'conectando' : 'reconectando', this.tentativa);
     let ws: WebSocket;
     try {
-      ws = new WebSocket(urlWs(this.token));
+      ws = new WebSocket(urlWs(this.token, this.sala));
     } catch {
       this.agendar();
       return;
@@ -201,6 +226,11 @@ export class ChatSocket {
       if (ev.code === 4401) {
         this.fechar();
         this.ouvintes.onExpirado();
+        return;
+      }
+      if (ev.code === 4400) {
+        this.fechar();
+        this.ouvintes.onSalaInvalida?.();
         return;
       }
       // Handshake recusado repetidamente (servidor fecha antes do accept → 403 → 1006 no
@@ -261,6 +291,11 @@ export class ChatSocket {
 
   enviar(texto: string): boolean {
     return this.enviarBruto({ tipo: 'msg', texto });
+  }
+
+  /** Reação (`🔥` … ou `torcida:<id>`); o limite de 5/s é aplicado pelo chamador. */
+  enviarReacao(valor: string): boolean {
+    return this.enviarBruto({ tipo: 'reacao', valor });
   }
 
   fechar(): void {

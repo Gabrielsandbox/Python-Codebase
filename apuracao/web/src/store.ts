@@ -2,11 +2,11 @@
 // candidatos, paleta) e um emissor de eventos minimalista.
 
 import { modoEscuro, montarPaleta, type Paleta } from './color';
-import type { Br, Meta, Mun, MunRow, RefMunicipios, RefUfs, Resultado, Status, Timeline, Uf } from './types';
+import type { Br, Caminho, Meta, Mun, MunRow, RefMunicipios, RefUfs, Resultado, Ritmo, Status, Timeline, Uf } from './types';
 
 export type Granularidade = 'uf' | 'mun';
 
-export type Evento = 'meta' | 'br' | 'uf' | 'mun' | 'status' | 'timeline' | 'selecao' | 'granularidade' | 'tema' | 'ref';
+export type Evento = 'meta' | 'br' | 'uf' | 'mun' | 'status' | 'timeline' | 'caminho' | 'ritmo' | 'selecao' | 'granularidade' | 'tema' | 'ref';
 
 type Ouvinte = () => void;
 
@@ -16,6 +16,8 @@ export class Store {
   uf: Uf | null = null;
   status: Status | null = null;
   timeline: Timeline | null = null;
+  caminho: Caminho | null = null;
+  ritmo: Ritmo | null = null;
   mun: Map<string, MunRow> | null = null;
   munPorUf: Map<string, MunRow[]> = new Map();
   refUfs: RefUfs = {};
@@ -96,6 +98,16 @@ export class Store {
     }
     this.timeline = t;
     this.emitir('timeline');
+  }
+
+  setCaminho(c: Caminho): void {
+    this.caminho = c;
+    this.emitir('caminho');
+  }
+
+  setRitmo(r: Ritmo): void {
+    this.ritmo = r;
+    this.emitir('ritmo');
   }
 
   setMun(m: Mun): void {

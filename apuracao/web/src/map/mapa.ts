@@ -89,6 +89,8 @@ export class Mapa {
   private pickLista: Feicao[] = [];
   private pickSujo = true;
   private hover: Feicao | null = null;
+  /** Realce persistente de um município (código IBGE) — "ver no mapa" / deep link. */
+  private realceMun: string | null = null;
   private hatch: CanvasPattern | null = null;
   private hatchK = 0;
 
@@ -270,7 +272,8 @@ export class Mapa {
   /** Navega para um estado (sigla) ou volta ao Brasil (null). */
   irPara(sigla: string | null): void {
     if (sigla === this.ufAtual) return;
-    this.ufAtual = sigla && this.ufPorSigla.has(sigla) ? sigla : null;
+    // antes da malha chegar (deep link #uf=XX), guarda a sigla: setGeoUf aplica a vista.
+    this.ufAtual = sigla && (this.ufs.length === 0 || this.ufPorSigla.has(sigla)) ? sigla : null;
     this.limparHover();
     this.pickSujo = true;
     this.ajustarVista(true);
@@ -490,15 +493,19 @@ export class Mapa {
     const { k, x, y } = this.vista;
     octx.setTransform(1, 0, 0, 1, 0, 0);
     octx.clearRect(0, 0, this.over.width, this.over.height);
-    if (!this.hover) return;
+    const realce = this.realceMun && this.ufAtual ? this.muns.find((f) => f.id === this.realceMun) ?? null : null;
+    if (!this.hover && !realce) return;
     octx.setTransform(dpr * k, 0, 0, dpr * k, dpr * x, dpr * y);
     octx.lineJoin = 'round';
-    octx.strokeStyle = this.cores.surface;
-    octx.lineWidth = 3.5 / k;
-    octx.stroke(this.hover.path);
-    octx.strokeStyle = this.cores.ink;
-    octx.lineWidth = 1.5 / k;
-    octx.stroke(this.hover.path);
+    for (const f of [realce, this.hover]) {
+      if (!f) continue;
+      octx.strokeStyle = this.cores.surface;
+      octx.lineWidth = (f === realce ? 5 : 3.5) / k;
+      octx.stroke(f.path);
+      octx.strokeStyle = this.cores.ink;
+      octx.lineWidth = (f === realce ? 2.2 : 1.5) / k;
+      octx.stroke(f.path);
+    }
   }
 
   // ------------------------------------------------------------------ interação
@@ -553,6 +560,12 @@ export class Mapa {
     const f = sigla ? this.ufPorSigla.get(sigla) ?? null : null;
     if (f === this.hover) return;
     this.hover = f;
+    this.renderOverlay();
+  }
+
+  /** Realça um município (IBGE) de forma persistente enquanto o estado dele está aberto. */
+  realcarMun(ibge: string | null): void {
+    this.realceMun = ibge;
     this.renderOverlay();
   }
 

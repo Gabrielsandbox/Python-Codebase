@@ -1,10 +1,13 @@
 // Painel do chat ao vivo: coluna à direita no desktop (≥1100 px), bottom sheet no
 // celular. Fluxo: paywall → checkout → retorno com ?chat_ref= → token → sala (WS).
 
+import './chat-ext.css';
 import { el, fmtInt } from '../format';
+import type { Store } from '../store';
 import { acesso, ChatHttpError, estado as lerEstado, guardarSessao, lerSessao, type Estado, type Sessao } from './client';
 import { montarPaywall } from './paywall';
 import { montarSala } from './sala';
+import { lerSalaGuardada, montarSeletorSalas, SALA_GERAL, ufDoHash } from './salas';
 
 const DESKTOP = '(min-width: 1100px)';
 const CHAVE_PAINEL = 'chat_painel'; // preferência de aberto/fechado no desktop
@@ -12,7 +15,7 @@ const RETORNO_PARAM = 'chat_ref';
 
 type Tela = 'paywall' | 'aguardando' | 'sala';
 
-export function montarChat(raiz: HTMLElement): void {
+export function montarChat(raiz: HTMLElement, store: Store): void {
   const mq = matchMedia(DESKTOP);
   const html = document.documentElement;
 
@@ -21,11 +24,19 @@ export function montarChat(raiz: HTMLElement): void {
   const conn = el('span', { class: 'chat-conn', hidden: true }, el('i', { 'aria-hidden': 'true' }), el('span', { class: 'txt' }));
   const btnFechar = el('button', { class: 'chat-x', type: 'button', 'aria-label': 'Fechar chat', title: 'Fechar' }, iconeX());
   const alca = el('i', { class: 'chat-handle', 'aria-hidden': 'true' });
+  // seletor de sala (Geral + UFs) — só aparece com a sessão ativa
+  const seletor = montarSeletorSalas({
+    salaInicial: lerSalaGuardada(),
+    nomeUf: (sigla) => store.refUfs[sigla]?.nome,
+    aoTrocar: (nova) => trocarSala(nova),
+  });
+  seletor.raiz.hidden = true;
   const head = el(
     'header',
     { class: 'chat-head' },
     alca,
     el('div', { class: 'chat-title' }, el('h2', { text: 'Chat ao vivo' }), el('div', { class: 'chat-meta' }, onlineHead, conn)),
+    seletor.raiz,
     btnFechar,
   );
   const corpo = el('div', { class: 'chat-body' });
@@ -173,6 +184,7 @@ export function montarChat(raiz: HTMLElement): void {
   });
 
   const sala = montarSala({
+    store,
     aoPresenca: (n) => setOnline(n),
     aoConexao: (estado) => {
       conn.hidden = estado === 'desligado';
@@ -188,15 +200,32 @@ export function montarChat(raiz: HTMLElement): void {
       guardarSessao(null);
       mostrar('paywall');
     },
+    aoTrocarSala: (nova) => trocarSala(nova),
   });
+
+  // ---------------------------------------------------------------- salas
+  let sessaoAtual: Sessao | null = null;
+  function trocarSala(nova: string): void {
+    seletor.setSala(nova);
+    if (!sessaoAtual || tela !== 'sala') return;
+    online = null;
+    renderOnline();
+    sala.ligar(sessaoAtual, nova);
+    sala.sugerirSala(ufDoHash());
+  }
+  window.addEventListener('hashchange', () => sala.sugerirSala(ufDoHash()));
 
   // ---------------------------------------------------------------- contadores de online
   let online: number | null = null;
+  let ultimoEstado: Estado | null = null;
   const renderOnline = () => {
-    const txt = online === null ? '' : `${fmtInt(online)} online`;
+    const naSala = tela === 'sala' && sala.sala !== SALA_GERAL;
+    const txt = online === null ? '' : `${fmtInt(online)} ${naSala ? 'na sala' : 'online'}`;
     onlineHead.textContent = txt;
-    railOnline.textContent = txt;
-    fabOnline.textContent = online === null ? '' : `· ${fmtInt(online)} online`;
+    // trilho e botão flutuante mostram o total do chat (todas as salas)
+    const total = tela === 'sala' && ultimoEstado ? ultimoEstado.online : online;
+    railOnline.textContent = total === null ? '' : `${fmtInt(total)} online`;
+    fabOnline.textContent = total === null ? '' : `· ${fmtInt(total)} online`;
   };
   const setOnline = (n: number) => {
     online = n;
@@ -204,13 +233,16 @@ export function montarChat(raiz: HTMLElement): void {
     paywall.setEstado(ultimoEstado, n);
   };
 
-  let ultimoEstado: Estado | null = null;
   const atualizarEstado = async () => {
     try {
       ultimoEstado = await lerEstado();
-      // com o WS aberto, a presença do servidor é mais fresca que /estado
+      seletor.setSalas(ultimoEstado.salas);
+      // com o WS aberto, a presença do servidor (por sala) é mais fresca que /estado
       if (tela !== 'sala' || !sala.conectado) setOnline(ultimoEstado.online);
-      else paywall.setEstado(ultimoEstado, online ?? ultimoEstado.online);
+      else {
+        paywall.setEstado(ultimoEstado, online ?? ultimoEstado.online);
+        renderOnline();
+      }
     } catch {
       /* /estado é só decorativo */
     }
@@ -223,15 +255,25 @@ export function montarChat(raiz: HTMLElement): void {
   const mostrar = (t: Tela, sessao?: Sessao) => {
     tela = t;
     corpo.replaceChildren();
-    if (t !== 'sala') sala.desligar();
+    if (t !== 'sala') {
+      sala.desligar();
+      seletor.desligar();
+      sessaoAtual = null;
+    }
+    seletor.raiz.hidden = t !== 'sala';
     if (t === 'paywall') corpo.append(paywall.raiz);
     else if (t === 'aguardando') corpo.append(telaAguardando());
     else if (sessao) {
+      sessaoAtual = sessao;
       corpo.append(sala.raiz);
-      sala.ligar(sessao);
+      // deep link #uf=XX sem sala guardada: sugere a sala da UF (chip), sem trocar sozinho
+      sala.ligar(sessao, seletor.sala);
+      sala.sugerirSala(ufDoHash());
+      seletor.ligar();
     }
     raiz.dataset.tela = t;
     if (t !== 'sala') conn.hidden = true;
+    renderOnline();
   };
 
   // ---------------------------------------------------------------- retorno do pagamento

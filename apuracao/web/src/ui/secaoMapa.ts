@@ -6,6 +6,7 @@ import { el, fmtInt, fmtPct, fmtPP, nomeProprio } from '../format';
 import { Mapa, type Alvo } from '../map/mapa';
 import type { Store } from '../store';
 import type { Resultado } from '../types';
+import { linkFonte, urlFonteBr, urlFonteUf } from '../recursos/fonte';
 
 export interface SecaoMapa {
   mapa: Mapa;
@@ -209,7 +210,9 @@ export function montarSecaoMapa(raiz: HTMLElement, store: Store): SecaoMapa {
       titulo = 'Brasil';
       sub = `${store.meta.cands.length} candidatos`;
     }
-    painel.append(el('div', { class: 'head' }, el('h2', { text: titulo }), el('span', { class: 'sub', text: sub })));
+    painel.append(
+      el('div', { class: 'head' }, el('h2', { text: titulo }), el('span', { class: 'sub' }, sub, ' ', linkFonte(sigla ? urlFonteUf(store, sigla) : urlFonteBr(store)))),
+    );
     if (!r) {
       painel.append(el('div', { class: 'empty', text: 'Carregando…' }));
       return;
