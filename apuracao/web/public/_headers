@@ -1,0 +1,18 @@
+# Cabeçalhos servidos pelo Cloudflare Pages (site estático). Os dados ao vivo NÃO passam por
+# aqui: vêm de dados.apuracaoaovivo.com (R2 + Cache Rule), com Cache-Control do coletor.
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+/geo/*
+  Cache-Control: public, max-age=86400, stale-while-revalidate=86400
+/ref/*
+  Cache-Control: public, max-age=86400, stale-while-revalidate=86400
+/icons/*
+  Cache-Control: public, max-age=604800
+/sw.js
+  Cache-Control: no-cache
+/manifest.webmanifest
+  Cache-Control: public, max-age=3600
+/index.html
+  Cache-Control: no-cache
+/
+  Cache-Control: no-cache
