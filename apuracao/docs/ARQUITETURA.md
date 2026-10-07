@@ -99,7 +99,8 @@ dados de cobrança; política de privacidade e termo de uso simples.
 ## 4b. Chat ao vivo (R$ 5, pagamento único) e o "pulso" de 1 segundo
 
 **Produto**: quem pagar R$ 5 (PIX ou cartão, pagamento único) entra no chat durante toda a
-apuração. É a primeira receita do dia, antes do acervo, e cria um segundo motivo para ficar na
+apuração e ganha o **modo telão**; o token do chat é a prova de compra. O paywall mostra o chat
+ao vivo desfocado ao fundo (`GET /chat/previa`, público, só leitura) para dar vontade de entrar. É a primeira receita do dia, antes do acervo, e cria um segundo motivo para ficar na
 página. Contrato completo em `CHAT.md`.
 
 **Por que um serviço separado**: o chat é a única parte com estado por usuário e conexões

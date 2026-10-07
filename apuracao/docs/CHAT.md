@@ -32,6 +32,11 @@ cliente distinguir "token inválido" de "servidor fora" sem abrir WebSocket.
 `{ "online": 1234, "aberto": true, "preco_centavos": 500, "mensagens_total": 98765 }`
 Público, cacheável por 5 s. Serve para mostrar "1.234 pessoas no chat" no paywall.
 
+### `GET /chat/previa?sala=geral`
+Público, cacheável por 5 s. Últimas 20 mensagens da sala **sem precisar de token**, para o
+paywall mostrar o chat ao vivo desfocado ao fundo:
+`{ "sala": "geral", "online": 1234, "mensagens": [ { "apelido": "Maria", "texto": "…", "t": "…", "tipo": "msg" } ] }`
+
 ### `POST /chat/webhook/stripe`
 Webhook do Stripe (`checkout.session.completed`, `checkout.session.async_payment_succeeded`
 para PIX). Marca o pagamento como `pago`.
@@ -77,6 +82,11 @@ CHAT_DADOS_BASE=http://127.0.0.1:8000/dados   (de onde ler ativo.json/br.json p/
 STRIPE_SECRET_KEY=sk_…
 STRIPE_WEBHOOK_SECRET=whsec_…
 ```
+
+## Pacote de R$ 5
+O pagamento único libera **chat ao vivo + modo telão**. O token do chat é a prova de compra:
+o telão só abre com token válido (`GET /chat/eu` → 200); sem token, o botão "Telão" abre o
+paywall com o texto "Chat ao vivo + modo telão por R$ 5".
 
 ## Frontend — comportamento
 

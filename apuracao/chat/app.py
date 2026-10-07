@@ -75,6 +75,30 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
             headers={"Cache-Control": "public, max-age=5"},
         )
 
+    @app.get("/chat/previa")
+    async def previa(sala: str = Query(default="geral")) -> JSONResponse:
+        """Prévia pública (somente leitura) da sala: últimas mensagens para o paywall desfocado."""
+        sala_ok = sala_valida(sala)
+        if sala_ok is None:
+            raise HTTPException(422, "sala inválida")
+        itens = await hub.ultimas(sala_ok)
+        return JSONResponse(
+            {
+                "sala": sala_ok,
+                "online": await hub.online(sala_ok),
+                "mensagens": [
+                    {
+                        "apelido": m.get("apelido"),
+                        "texto": m.get("texto"),
+                        "t": m.get("t"),
+                        "tipo": m.get("tipo", "msg"),
+                    }
+                    for m in itens[-20:]
+                ],
+            },
+            headers={"Cache-Control": "public, max-age=5"},
+        )
+
     @app.post("/chat/checkout")
     def checkout(body: CheckoutIn) -> dict[str, Any]:
         try:

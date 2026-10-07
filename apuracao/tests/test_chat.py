@@ -228,3 +228,17 @@ def test_salas_reacoes_termometro(cliente):
     # histórico por sala persiste
     with cliente.websocket_connect(f"/chat/ws?token={t2}&sala=SP") as ws:
         assert [m["texto"] for m in json.loads(ws.receive_text())["mensagens"]] == ["só em SP"]
+
+
+def test_previa_publica(cliente):
+    t1, _ = comprar(cliente, "Maria")
+    with cliente.websocket_connect(f"/chat/ws?token={t1}&sala=RJ") as ws:
+        json.loads(ws.receive_text())
+        ws.send_text(json.dumps({"tipo": "msg", "texto": "prévia do Rio"}))
+        while json.loads(ws.receive_text())["tipo"] != "msg":
+            pass
+    r = cliente.get("/chat/previa", params={"sala": "RJ"})
+    assert r.status_code == 200 and r.headers["cache-control"] == "public, max-age=5"
+    assert [m["texto"] for m in r.json()["mensagens"]] == ["prévia do Rio"]
+    assert r.json()["mensagens"][0]["apelido"] == "Maria" and "sub" not in r.json()["mensagens"][0]
+    assert cliente.get("/chat/previa", params={"sala": "XX"}).status_code == 422
