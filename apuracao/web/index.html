@@ -6,6 +6,19 @@
     <meta name="color-scheme" content="light dark" />
     <meta name="theme-color" content="#f6f5f1" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#111113" media="(prefers-color-scheme: dark)" />
+    <script>
+      // tema escolhido (localStorage.tema = "light" | "dark"; ausente = automático), antes da 1ª pintura
+      (function () {
+        try {
+          var t = localStorage.getItem('tema');
+          if (t !== 'light' && t !== 'dark') return;
+          document.documentElement.setAttribute('data-theme', t);
+          var cor = t === 'dark' ? '#111113' : '#f6f5f1';
+          var metas = document.querySelectorAll('meta[name="theme-color"]');
+          for (var i = 0; i < metas.length; i++) metas[i].setAttribute('content', cor);
+        } catch (e) {}
+      })();
+    </script>
     <meta name="description" content="Apuração em tempo real do 2º turno das eleições presidenciais de 2026, com dados oficiais do TSE, por estado e município." />
     <title>Apuração 2026 — 2º turno</title>
     <link rel="manifest" href="/manifest.webmanifest" />

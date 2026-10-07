@@ -3,10 +3,15 @@
 import { el, fmtInt } from '../format';
 import { apelidoValido, ChatHttpError, checkout, normalizarApelido, type Estado } from './client';
 
+export type VariantePaywall = 'chat' | 'telao';
+
 export interface Paywall {
   raiz: HTMLElement;
   setEstado(e: Estado | null, online: number | null): void;
   aviso(msg: string | null): void;
+  /** 'telao': manchete "Chat ao vivo + modo telão" e a nota "Depois de pagar, o telão abre sozinho". */
+  setVariante(v: VariantePaywall): void;
+  readonly variante: VariantePaywall;
 }
 
 const fmtPreco = (centavos: number): string => {
@@ -16,7 +21,11 @@ const fmtPreco = (centavos: number): string => {
 
 export function montarPaywall(opts: { aoCheckout: () => void }): Paywall {
   let preco = 500;
+  let variante: VariantePaywall = 'chat';
   const precoEl = el('span', { class: 'pay-price num', text: fmtPreco(preco) });
+  const titulo = el('h3', { id: 'pay-titulo', text: 'Entre na conversa' });
+  const lead = el('p', { class: 'pay-lead', text: 'Comente a apuração em tempo real com quem está acompanhando agora.' });
+  const notaTelao = el('p', { class: 'pay-telao-nota', hidden: true }, el('i', { class: 'ico', 'aria-hidden': 'true' }), el('span', { text: 'Depois de pagar, o telão abre sozinho' }));
   const btnTxt = el('span', { text: `Pagar ${fmtPreco(preco)} e entrar` });
   const onlineEl = el('p', { class: 'pay-online' });
   const avisoEl = el('p', { class: 'pay-aviso', role: 'alert', hidden: true });
@@ -123,20 +132,17 @@ export function montarPaywall(opts: { aoCheckout: () => void }): Paywall {
     'section',
     { class: 'pay', 'aria-labelledby': 'pay-titulo' },
     el('span', { class: 'pay-eyebrow' }, el('i', { class: 'live-dot', 'aria-hidden': 'true' }), 'Chat ao vivo'),
-    el('h3', { id: 'pay-titulo', text: 'Comente a apuração em tempo real' }),
-    el('p', { class: 'pay-lead', text: 'Uma sala só, com placar atualizado no meio da conversa e moderação automática.' }),
-    el(
-      'div',
-      { class: 'pay-price-row' },
-      precoEl,
-      el('span', { class: 'pay-terms' }, el('b', { text: 'pagamento único' }), el('span', { text: 'PIX ou cartão' })),
-    ),
+    titulo,
+    lead,
+    notaTelao,
+    // texto exato: "R$ 5 · pagamento único · PIX ou cartão"
+    el('p', { class: 'pay-price-row num' }, precoEl, el('span', { class: 'pay-terms', text: ' · pagamento único · PIX ou cartão' })),
     el(
       'ul',
       { class: 'pay-list' },
-      item('Vale para toda a apuração', 'do início da totalização até o resultado final'),
-      item('Placar no chat', 'o sistema avisa quando o resultado muda'),
-      item('Sem assinatura', 'nada é renovado nem cobrado de novo'),
+      item('Chat ao vivo durante toda a apuração'),
+      item('Modo telão (TV) para bar, redação e sala de aula'),
+      item('Alertas de virada e marcos'),
     ),
     form,
     avisoEl,
@@ -152,6 +158,19 @@ export function montarPaywall(opts: { aoCheckout: () => void }): Paywall {
   return {
     raiz,
     aviso,
+    get variante() {
+      return variante;
+    },
+    setVariante(v) {
+      variante = v;
+      raiz.dataset.variante = v;
+      titulo.textContent = v === 'telao' ? 'Chat ao vivo + modo telão' : 'Entre na conversa';
+      lead.textContent =
+        v === 'telao'
+          ? 'O telão faz parte do pacote: placar gigante e mapa em tela cheia, mais o chat ao vivo.'
+          : 'Comente a apuração em tempo real com quem está acompanhando agora.';
+      notaTelao.hidden = v !== 'telao';
+    },
     setEstado(e, online) {
       if (e && e.preco_centavos !== preco) {
         preco = e.preco_centavos;
@@ -165,12 +184,12 @@ export function montarPaywall(opts: { aoCheckout: () => void }): Paywall {
       const n = online ?? e?.online ?? null;
       onlineEl.replaceChildren();
       if (n !== null) {
-        onlineEl.append(el('i', { class: 'live-dot', 'aria-hidden': 'true' }), el('b', { class: 'num', text: fmtInt(n) }), n === 1 ? ' pessoa no chat agora' : ' pessoas no chat agora');
+        onlineEl.append(el('i', { class: 'live-dot', 'aria-hidden': 'true' }), el('b', { class: 'num', text: fmtInt(n) }), n === 1 ? ' pessoa conversando agora' : ' pessoas conversando agora');
       }
     },
   };
 }
 
-function item(titulo: string, desc: string): HTMLElement {
-  return el('li', {}, el('i', { class: 'check', 'aria-hidden': 'true' }), el('span', {}, el('b', { text: titulo }), el('span', { class: 'desc', text: desc })));
+function item(titulo: string, desc?: string): HTMLElement {
+  return el('li', {}, el('i', { class: 'check', 'aria-hidden': 'true' }), el('span', {}, el('b', { text: titulo }), desc ? el('span', { class: 'desc', text: desc }) : null));
 }

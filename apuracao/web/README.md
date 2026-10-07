@@ -64,8 +64,17 @@ Implementa o contrato de [`../docs/CHAT.md`](../docs/CHAT.md):
   (`chat_token`, `chat_apelido`) e `ChatSocket` (WebSocket com ping a cada 25 s,
   reconexão com backoff exponencial 1 s → 30 s com jitter, aceita frames de texto ou
   binários; `4401` apaga a sessão e volta ao paywall; `4429` espera o backoff máximo).
-- `paywall.ts` — preço (de `/chat/estado`, padrão R$ 5), o que inclui, apelido validado no
-  cliente (2–24: letras, números, espaço ou `_`), "N pessoas no chat agora".
+- `paywall.ts` — cartão "Entre na conversa": preço (de `/chat/estado`, padrão R$ 5; linha
+  "R$ 5 · pagamento único · PIX ou cartão"), o que inclui (chat durante toda a apuração, modo
+  telão, alertas), apelido validado no cliente (2–24: letras, números, espaço ou `_`), "N pessoas
+  conversando agora". Variante `telao` (`setVariante`): manchete "Chat ao vivo + modo telão" e a
+  nota "Depois de pagar, o telão abre sozinho".
+- `previa.ts` — sala ao vivo **atrás** do paywall: `GET /chat/previa?sala=geral` a cada 5 s (só
+  com o painel aberto e a aba visível), últimas ~12 mensagens + chips de sistema + "N pessoas
+  conversando agora", com a mesma marcação da sala, `filter: blur(4px)` + dessaturação,
+  `pointer-events: none` e `aria-hidden`; mensagens novas entram com fade (nenhuma transição de
+  desfoque; `prefers-reduced-motion` desliga a animação). O cartão fica centrado por cima, sobre
+  um gradiente que mantém a leitura.
 - `sala.ts` — lista com no máximo 300 mensagens no DOM, autoscroll que respeita quem
   rolou para cima (pílula "↓ novas mensagens"), mensagens próprias à direita, mensagens
   de `sistema` como chip central, compositor com contador 0/280, Enter envia e
@@ -76,7 +85,16 @@ Implementa o contrato de [`../docs/CHAT.md`](../docs/CHAT.md):
   acompanha o teclado, arraste para baixo ou Esc fecha) aberto pelo botão flutuante
   "Chat ao vivo · N online". Ao voltar do pagamento com `?chat_ref=`, chama
   `/chat/acesso` a cada 3 s enquanto responder 402 ("aguardando confirmação do PIX…"),
-  guarda o token e limpa a URL.
+  guarda o token e limpa a URL. Devolve um `ChatApi` (`sessao()`, `pedirPagamento(variante)`,
+  `sessaoInvalida()`, `onSessao(cb)`) usado pelo telão.
+
+### Pacote de R$ 5: chat + telão
+
+O token do chat é a prova de compra. "Telão" (botão da barra ou `#telao`) sem token guarda
+`sessionStorage.telao_pendente` e abre o chat no paywall variante telão; depois do
+`/chat/acesso`, o telão abre sozinho. Com token, valida uma vez por token com `GET /chat/eu`
+(`Authorization: Bearer`): 200 abre, 401 apaga o token e mostra o paywall, erro de rede abre
+mesmo assim (a queda é nossa, não do usuário).
 
 Em produção, sirva o serviço de chat no mesmo domínio (proxy reverso em `/chat`) ou
 aponte `VITE_CHAT_BASE` para ele (o backend precisa liberar CORS para a origem da página).
@@ -139,8 +157,9 @@ quando o arquivo ou campo não existe (snapshots antigos).
   os dois finalistas, margem, comparecimento e "no Brasil", "ver no mapa" (abre o estado e
   realça o município, `Mapa.realcarMun`), "compartilhar" (canvas 1080×1080 →
   `navigator.share` com arquivo, senão `wa.me`) e "copiar link".
-- `telao.ts` — modo telão (`#telao` ou botão "Telão"): overlay em tela cheia, tema escuro
-  forçado (`data-theme="dark"` + `store.atualizarTema()`, restaurado ao sair), placar
+- `telao.ts` — modo telão (`#telao` ou botão "Telão"; exige o token do chat, ver acima):
+  overlay em tela cheia, tema escuro forçado (`data-theme="dark"` + `store.atualizarTema()`;
+  ao sair volta a escolha do usuário em `localStorage.tema`, não "auto"), placar
   gigante, segunda instância de `Mapa`, carrossel das UFs a cada 12 s (← → trocam, toque
   no mapa também), rodapé com ritmo + caminho. `Esc`, o botão ou sair da tela cheia fecham.
 - `fonte.ts` — links "fonte: TSE ↗" (`meta.fonte` + `fonte` de `br`/`uf`; município pelo
@@ -148,6 +167,26 @@ quando o arquivo ou campo não existe (snapshots antigos).
   de seleção, na tabela por UF e no card do município; frase no rodapé.
 - Deep links (`index.ts`): `#m=<ibge>` abre o município (e o estado no mapa), `#uf=<SIGLA>`
   abre o estado (funciona antes de a malha chegar), `#telao` abre o telão.
+
+## Tema claro / escuro / automático (`src/tema.ts`)
+
+Botão de 3 estados na barra superior (auto → claro → escuro; ícone, `aria-label`/tooltip e rótulo
+curto quando a barra tem folga, via *container query*; no celular vira uma coluna própria do
+grid). A escolha fica em `localStorage.tema` (`light` | `dark`; ausente = automático) e é aplicada
+antes da primeira pintura por um script inline no `<head>` do `index.html` (`data-theme` + as duas
+`<meta name="theme-color">`). Trocar chama `store.atualizarTema()` (mapa e paleta re-renderizam).
+O CSS define os tokens em `:root`, repete-os em `@media (prefers-color-scheme: dark)` guardado por
+`:root:not([data-theme="light"])` e em `:root[data-theme="dark"]`, então a escolha explícita vence
+nos dois sentidos.
+
+## Compartilhar no WhatsApp (`src/ui/whatsapp.ts`)
+
+Botão verde (`--wa`, #25D366 no claro e um pouco mais escuro no escuro; glifo SVG inline) logo
+abaixo da barra do placar nacional (largura total no celular, em linha no desktop), versão
+compacta na barra superior (desktop) e no card "Meu município" (com o texto do município). Texto:
+`Apuração 2026 · 2º turno: A a% × B b% (pct% das seções) — acompanhe ao vivo: {url}` (URL sem
+hash), sempre por `https://wa.me/?text=` em nova aba; com `navigator.share` aparece o link
+secundário "outros apps". Pulsa uma vez (`.wa-pulse`) quando `br` muda.
 
 ## Polling
 

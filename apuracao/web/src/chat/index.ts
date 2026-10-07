@@ -5,7 +5,8 @@ import './chat-ext.css';
 import { el, fmtInt } from '../format';
 import type { Store } from '../store';
 import { acesso, ChatHttpError, estado as lerEstado, guardarSessao, lerSessao, type Estado, type Sessao } from './client';
-import { montarPaywall } from './paywall';
+import { montarPaywall, type VariantePaywall } from './paywall';
+import { montarPrevia } from './previa';
 import { montarSala } from './sala';
 import { lerSalaGuardada, montarSeletorSalas, SALA_GERAL, ufDoHash } from './salas';
 
@@ -15,7 +16,23 @@ const RETORNO_PARAM = 'chat_ref';
 
 type Tela = 'paywall' | 'aguardando' | 'sala';
 
-export function montarChat(raiz: HTMLElement, store: Store): void {
+/** Superfície mínima para outros módulos (telão faz parte do pacote: o token do chat é a prova de compra). */
+export interface ChatApi {
+  abrir(v: boolean): void;
+  readonly aberto: boolean;
+  /** Sessão guardada neste navegador (token + apelido) ou null. */
+  sessao(): Sessao | null;
+  /** Mostra o paywall na variante dada e abre o painel. */
+  pedirPagamento(variante: VariantePaywall, aviso?: string | null): void;
+  /** Troca a manchete do paywall sem abrir o painel. */
+  setVariante(variante: VariantePaywall): void;
+  /** Servidor recusou o token (401): apaga a sessão local e volta ao paywall. */
+  sessaoInvalida(variante?: VariantePaywall): void;
+  /** Chamado quando /chat/acesso devolve um token novo (depois do pagamento). */
+  onSessao(cb: (s: Sessao) => void): void;
+}
+
+export function montarChat(raiz: HTMLElement, store: Store): ChatApi {
   const mq = matchMedia(DESKTOP);
   const html = document.documentElement;
 
@@ -100,6 +117,7 @@ export function montarChat(raiz: HTMLElement, store: Store): void {
       }
     }
     aplicarAbertura();
+    sincronizarPrevia();
     if (v) (corpo.querySelector<HTMLElement>('[data-foco]') ?? btnFechar).focus({ preventScroll: true });
     else if (!mq.matches) fab.focus({ preventScroll: true });
   };
@@ -114,6 +132,7 @@ export function montarChat(raiz: HTMLElement, store: Store): void {
   mq.addEventListener('change', () => {
     aberto = mq.matches ? lerPref() : false;
     aplicarAbertura();
+    sincronizarPrevia();
   });
 
   // ---------------------------------------------------------------- teclado no celular (visualViewport)
@@ -182,6 +201,18 @@ export function montarChat(raiz: HTMLElement, store: Store): void {
       /* o navegador será redirecionado */
     },
   });
+  // feed somente leitura da sala, desfocado atrás do cartão do paywall (GET /chat/previa a cada 5 s)
+  const previa = montarPrevia();
+  previa.aoAtualizar = (n) => {
+    if (tela === 'paywall') setOnline(n);
+  };
+  const painelPaywall = el('div', { class: 'chat-pay-wrap' }, previa.raiz, el('div', { class: 'chat-pay-overlay' }, paywall.raiz));
+  /** O feed só atualiza com o paywall visível (painel aberto) — para quando fecha ou troca de tela. */
+  function sincronizarPrevia() {
+    if (tela === 'paywall' && aberto) previa.ligar();
+    else previa.desligar();
+  }
+  const ouvintesSessao: ((s: Sessao) => void)[] = [];
 
   const sala = montarSala({
     store,
@@ -193,11 +224,13 @@ export function montarChat(raiz: HTMLElement, store: Store): void {
     },
     aoExpirar: () => {
       guardarSessao(null);
+      paywall.setVariante('chat');
       mostrar('paywall');
       paywall.aviso('Seu acesso expirou ou não foi reconhecido. Entre de novo para continuar.');
     },
     aoSair: () => {
       guardarSessao(null);
+      paywall.setVariante('chat');
       mostrar('paywall');
     },
     aoTrocarSala: (nova) => trocarSala(nova),
@@ -261,7 +294,7 @@ export function montarChat(raiz: HTMLElement, store: Store): void {
       sessaoAtual = null;
     }
     seletor.raiz.hidden = t !== 'sala';
-    if (t === 'paywall') corpo.append(paywall.raiz);
+    if (t === 'paywall') corpo.append(painelPaywall);
     else if (t === 'aguardando') corpo.append(telaAguardando());
     else if (sessao) {
       sessaoAtual = sessao;
@@ -274,6 +307,7 @@ export function montarChat(raiz: HTMLElement, store: Store): void {
     raiz.dataset.tela = t;
     if (t !== 'sala') conn.hidden = true;
     renderOnline();
+    sincronizarPrevia();
   };
 
   // ---------------------------------------------------------------- retorno do pagamento
@@ -308,6 +342,7 @@ export function montarChat(raiz: HTMLElement, store: Store): void {
         guardarSessao(sessao);
         limparUrl();
         mostrar('sala', sessao);
+        for (const cb of ouvintesSessao) cb(sessao);
         return;
       } catch (e) {
         if (e instanceof ChatHttpError && e.status === 402) {
@@ -337,6 +372,33 @@ export function montarChat(raiz: HTMLElement, store: Store): void {
   if (ref) void concluirPagamento(ref);
   else if (sessao) mostrar('sala', sessao);
   else mostrar('paywall');
+
+  return {
+    abrir,
+    get aberto() {
+      return aberto;
+    },
+    sessao: () => (tela === 'sala' ? sessaoAtual : lerSessao()),
+    pedirPagamento(variante, msg = null) {
+      // já pagou (sala) ou está confirmando o pagamento: só abre o painel
+      if (tela !== 'sala' && tela !== 'aguardando') {
+        paywall.setVariante(variante);
+        if (tela !== 'paywall') mostrar('paywall');
+        paywall.aviso(msg);
+      }
+      abrir(true);
+    },
+    setVariante: (v) => paywall.setVariante(v),
+    sessaoInvalida(variante = 'chat') {
+      guardarSessao(null);
+      paywall.setVariante(variante);
+      mostrar('paywall');
+      paywall.aviso('Seu acesso expirou ou não foi reconhecido. Entre de novo para continuar.');
+    },
+    onSessao: (cb) => {
+      ouvintesSessao.push(cb);
+    },
+  };
 }
 
 function iconeX(): SVGSVGElement {

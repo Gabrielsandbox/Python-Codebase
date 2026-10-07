@@ -9,6 +9,7 @@ import { corCandidato, textoSobre } from '../color';
 import { el, fmtInt, fmtPct, fmtPP, iniciais, nomeProprio } from '../format';
 import type { Store } from '../store';
 import type { SecaoMapa } from '../ui/secaoMapa';
+import { abrirWhatsApp, iconeWhatsApp } from '../ui/whatsapp';
 import type { MunRow } from '../types';
 import { linkFonte, urlFonteMun } from './fonte';
 
@@ -361,14 +362,16 @@ export function montarMunicipio(side: HTMLElement, store: Store, secao: SecaoMap
         );
       }
     }
-    const bShare = el('button', { class: 'btn primary', type: 'button', text: 'Compartilhar' });
+    const bWa = el('button', { class: 'btn-wa mun-wa', type: 'button', title: 'Compartilhar este município no WhatsApp' }, iconeWhatsApp(18), el('span', { class: 'wa-txt', text: 'Compartilhar no WhatsApp' }));
+    const bShare = el('button', { class: 'btn', type: 'button', text: 'Compartilhar imagem', title: 'Card 1080×1080 para redes sociais' });
     const bCopy = el('button', { class: 'btn', type: 'button', text: 'Copiar link' });
     const bMapa = el('button', { class: 'btn', type: 'button', text: 'Ver no mapa' });
-    bShare.disabled = m.liderIdx < 0;
+    bWa.disabled = bShare.disabled = m.liderIdx < 0;
+    bWa.addEventListener('click', () => abrirWhatsApp(textoCompartilhar(ibge, m)));
     bShare.addEventListener('click', () => void compartilhar(ibge, m));
     bCopy.addEventListener('click', () => void copiarLink(ibge));
     bMapa.addEventListener('click', () => verNoMapa(ibge, uf));
-    resultado.append(el('div', { class: 'mun-acoes' }, bShare, bCopy, bMapa));
+    resultado.append(el('div', { class: 'mun-acoes' }, bWa, bShare, bCopy, bMapa));
   };
 
   const verNoMapa = (ibge: string, uf: string) => {

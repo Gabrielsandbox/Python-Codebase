@@ -3,6 +3,7 @@
 import { textoSobre } from '../color';
 import { contar, el, fmtInt, fmtPct, fmtPP, iniciais, nomeProprio, pulsar } from '../format';
 import type { Store } from '../store';
+import { montarBotaoWhatsApp } from './whatsapp';
 
 interface Lado {
   raiz: HTMLElement;
@@ -31,6 +32,9 @@ export function montarPlacar(raiz: HTMLElement, store: Store): void {
   let margem: HTMLElement | null = null;
   let outrosLista: HTMLElement | null = null;
   let montadoPara = '';
+  // compartilhar (WhatsApp) logo abaixo da barra: montado uma vez, realocado se a estrutura for refeita
+  const share = montarBotaoWhatsApp(store, { outrosApps: true, pulsar: true });
+  share.classList.add('hero-share');
 
   const lado = (dir: 'left' | 'right'): Lado => {
     const avatar = el('div', { class: 'avatar', 'aria-hidden': 'true' });
@@ -61,7 +65,7 @@ export function montarPlacar(raiz: HTMLElement, store: Store): void {
     const barra = el('div', { class: 'race-bar', 'aria-hidden': 'true' }, lados[0].barra, outrosBarra, lados[1].barra);
     contest.append(lados[0].raiz, lados[1].raiz, barra);
     if (store.disputaDupla) contest.append(el('div', { class: 'race-mid', 'aria-hidden': 'true' }));
-    contest.append(margem);
+    contest.append(margem, share);
     if (store.meta.cands.length > 2) {
       outrosLista = el('ul');
       contest.append(

@@ -8,6 +8,7 @@ import { textoSobre } from '../color';
 import { el, fmtDataLonga, fmtHoraSeg, fmtInt, fmtPct, fmtPP, iniciais, nomeProprio } from '../format';
 import { Mapa } from '../map/mapa';
 import type { Store } from '../store';
+import { aplicarTema, lerTema } from '../tema';
 import { resumoCaminho } from './caminho';
 import { EXPLICACAO_RITMO, textoRitmo } from './ritmo';
 
@@ -23,7 +24,6 @@ export function montarTelao(store: Store, topoUf: () => Promise<Topology>): Tela
   let overlay: HTMLElement | null = null;
   let aberto = false;
   let pediuFullscreen = false;
-  let temaAnterior: string | null = null;
   let timer: number | null = null;
   let relogio: number | null = null;
   let idx = 0;
@@ -229,8 +229,7 @@ export function montarTelao(store: Store, topoUf: () => Promise<Topology>): Tela
     if (!overlay) construir();
     aberto = true;
     const html = document.documentElement;
-    temaAnterior = html.getAttribute('data-theme');
-    html.setAttribute('data-theme', 'dark');
+    html.setAttribute('data-theme', 'dark'); // escuro forçado; ao sair volta a escolha do usuário (localStorage.tema)
     html.classList.add('telao-aberto');
     store.atualizarTema();
     mapa?.lerCores();
@@ -273,9 +272,8 @@ export function montarTelao(store: Store, topoUf: () => Promise<Topology>): Tela
     document.removeEventListener('fullscreenchange', aoFullscreen);
     if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(() => {});
     const html = document.documentElement;
-    if (temaAnterior) html.setAttribute('data-theme', temaAnterior);
-    else html.removeAttribute('data-theme');
     html.classList.remove('telao-aberto');
+    aplicarTema(lerTema()); // a escolha do usuário (claro/escuro/automático), não "auto" a seco
     store.atualizarTema();
     if (overlay) overlay.hidden = true;
     mapa?.realcarUf(null);

@@ -101,6 +101,27 @@ export const checkout = (apelido: string, retorno: string): Promise<Checkout> =>
 
 export const acesso = (ref: string): Promise<Acesso> => chamar<Acesso>(`/acesso?ref=${encodeURIComponent(ref)}`, { cache: 'no-store' });
 
+export interface Eu {
+  apelido: string;
+  expira_em: string;
+}
+/** Valida o token sem abrir WebSocket (200 ok · 401 inválido/expirado · outro = servidor fora). */
+export const eu = (token: string): Promise<Eu> => chamar<Eu>('/eu', { cache: 'no-store', headers: { Authorization: `Bearer ${token}` } });
+
+export interface MsgPrevia {
+  apelido: string | null;
+  texto: string;
+  t: string;
+  tipo: 'msg' | 'sistema' | string;
+}
+export interface Previa {
+  sala: string;
+  online: number;
+  mensagens: MsgPrevia[];
+}
+/** Prévia pública da sala (últimas 20 mensagens, sem token) para o paywall desfocado. */
+export const previa = (sala = 'geral'): Promise<Previa> => chamar<Previa>(`/previa?sala=${encodeURIComponent(sala)}`, { cache: 'no-cache' });
+
 // ------------------------------------------------------------------ sessão local
 export interface Sessao {
   token: string;

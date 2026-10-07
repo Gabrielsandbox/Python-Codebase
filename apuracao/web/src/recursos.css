@@ -718,6 +718,11 @@
   flex-wrap: wrap;
   gap: 8px;
 }
+.mun-acoes .mun-wa {
+  flex: 1 1 100%;
+  min-height: 40px;
+  font-size: 14px;
+}
 .btn.primary {
   background: var(--ink);
   color: var(--bg);

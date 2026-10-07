@@ -99,7 +99,7 @@ async function iniciar(): Promise<void> {
   // 3. interface
   montarCabecalho($('topbar'), store, poller);
   montarAlertas($('alertas'));
-  montarChat($('chat'), store);
+  const chat = montarChat($('chat'), store);
   montarPlacar($('hero'), store);
   const secao = montarSecaoMapa($('mapa'), store);
   montarTotais($('totais'), store);
@@ -113,7 +113,7 @@ async function iniciar(): Promise<void> {
     },
     (sigla) => secao.mapa.realcarUf(sigla),
   );
-  montarRecursos(store, secao, { topoUf: () => getJson<Topology>(`${ESTATICO}geo/br-uf.topo.json`), topoMun: () => getJson<Topology>(`${ESTATICO}geo/br-mun.topo.json`) });
+  montarRecursos(store, secao, { topoUf: () => getJson<Topology>(`${ESTATICO}geo/br-uf.topo.json`), topoMun: () => getJson<Topology>(`${ESTATICO}geo/br-mun.topo.json`) }, chat);
   $('app').setAttribute('aria-busy', 'false');
 
   // 4. polling

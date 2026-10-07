@@ -1,6 +1,8 @@
 import type { Ciclo, Poller } from '../api';
 import { el, fmtDataLonga, fmtHoraSeg, pulsar, reduzMovimento, svgEl } from '../format';
 import type { Store } from '../store';
+import { montarToggleTema } from '../tema';
+import { montarBotaoWhatsApp } from './whatsapp';
 
 const ordinal = (n: number) => `${n}º turno`;
 
@@ -54,7 +56,7 @@ export function montarCabecalho(raiz: HTMLElement, store: Store, poller: Poller)
       'div',
       { class: 'topbar-inner' },
       el('div', { class: 'brand' }, titulo, sub),
-      el('div', { class: 'status' }, indicador, badge),
+      el('div', { class: 'status' }, indicador, badge, montarBotaoWhatsApp(store, { compacto: true }), montarToggleTema(store)),
     ),
   );
 
