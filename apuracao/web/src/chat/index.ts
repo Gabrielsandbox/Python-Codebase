@@ -4,7 +4,7 @@
 import './chat-ext.css';
 import { el, fmtInt } from '../format';
 import type { Store } from '../store';
-import { acesso, ChatHttpError, estado as lerEstado, guardarSessao, lerSessao, type Estado, type Sessao } from './client';
+import { acesso, ChatHttpError, estado as lerEstado, guardarSessao, lerSessao, type Estado, type Sessao, ONLINE_MINIMO } from './client';
 import { montarPaywall, type VariantePaywall } from './paywall';
 import { montarPrevia } from './previa';
 import { montarSala } from './sala';
@@ -253,12 +253,13 @@ export function montarChat(raiz: HTMLElement, store: Store): ChatApi {
   let ultimoEstado: Estado | null = null;
   const renderOnline = () => {
     const naSala = tela === 'sala' && sala.sala !== SALA_GERAL;
-    const txt = online === null ? '' : `${fmtInt(online)} ${naSala ? 'na sala' : 'online'}`;
-    onlineHead.textContent = txt;
+    // abaixo de ONLINE_MINIMO o número fica escondido (um "0 online" só afasta)
+    const mostra = (n: number | null): n is number => n !== null && n >= ONLINE_MINIMO;
+    onlineHead.textContent = mostra(online) ? `${fmtInt(online)} ${naSala ? 'na sala' : 'online'}` : '';
     // trilho e botão flutuante mostram o total do chat (todas as salas)
     const total = tela === 'sala' && ultimoEstado ? ultimoEstado.online : online;
-    railOnline.textContent = total === null ? '' : `${fmtInt(total)} online`;
-    fabOnline.textContent = total === null ? '' : `· ${fmtInt(total)} online`;
+    railOnline.textContent = mostra(total) ? `${fmtInt(total)} online` : '';
+    fabOnline.textContent = mostra(total) ? `· ${fmtInt(total)} online` : '';
   };
   const setOnline = (n: number) => {
     online = n;

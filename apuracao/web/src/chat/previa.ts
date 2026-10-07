@@ -3,7 +3,7 @@
 // Texto só via textContent. Para quando o painel está fechado ou a aba oculta.
 
 import { el, fmtHora, fmtInt } from '../format';
-import { previa as lerPrevia, type MsgPrevia } from './client';
+import { previa as lerPrevia, type MsgPrevia, ONLINE_MINIMO } from './client';
 
 const INTERVALO = 5_000;
 const MAX_VISIVEIS = 12;
@@ -54,6 +54,7 @@ export function montarPrevia(): PreviaFeed {
 
   const render = (msgs: MsgPrevia[], n: number) => {
     ultimoOnline = n;
+    online.hidden = n < ONLINE_MINIMO; // poucos online: não anuncia
     onlineTxt.textContent = n === 1 ? '1 pessoa conversando agora' : `${fmtInt(n)} pessoas conversando agora`;
     const visiveis = msgs.filter((m) => m && typeof m.texto === 'string').slice(-MAX_VISIVEIS);
     const novas = new Set<string>();

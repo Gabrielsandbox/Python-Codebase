@@ -1,6 +1,9 @@
 // Cliente do chat ao vivo (docs/CHAT.md): HTTP (checkout/acesso/estado) e
 // WebSocket com reconexão em backoff exponencial (1 s → 30 s).
 
+/** Só mostramos "N online" a partir deste número: abaixo disso o número desanima mais do que convida. */
+export const ONLINE_MINIMO = 500;
+
 export const CHAT_BASE: string = (import.meta.env.VITE_CHAT_BASE as string | undefined)?.replace(/\/$/, '') || '/chat';
 
 export const CHAVE_TOKEN = 'chat_token';
