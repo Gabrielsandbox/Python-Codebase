@@ -31,6 +31,21 @@ CREATE TABLE IF NOT EXISTS bloqueados (
     em       TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS ix_mensagens_t ON mensagens(t);
+CREATE TABLE IF NOT EXISTS usuarios (
+    id            TEXT PRIMARY KEY,
+    email         TEXT NOT NULL UNIQUE,
+    apelido       TEXT NOT NULL,
+    criado_em     TEXT NOT NULL,
+    ultimo_acesso TEXT,
+    origem        TEXT NOT NULL DEFAULT 'apuracao-2026'
+);
+CREATE TABLE IF NOT EXISTS logins (
+    token_hash TEXT PRIMARY KEY,
+    usuario_id TEXT NOT NULL,
+    criado_em  TEXT NOT NULL,
+    expira_em  TEXT NOT NULL,
+    usado_em   TEXT
+);
 """
 
 
@@ -53,18 +68,95 @@ class DB:
                     "ALTER TABLE mensagens ADD COLUMN sala TEXT NOT NULL DEFAULT 'geral'"
                 )
                 self._con.commit()
+            cols = {r[1] for r in self._con.execute("PRAGMA table_info(pagamentos)")}
+            for col in ("email", "usuario_id"):  # migração: contas
+                if col not in cols:
+                    self._con.execute(f"ALTER TABLE pagamentos ADD COLUMN {col} TEXT")
+            self._con.commit()
 
     # ---------------------------------------------------------------- pagamentos
     def criar_pagamento(
-        self, ref: str, provedor: str, apelido: str, valor: int, provedor_id: str | None = None
+        self,
+        ref: str,
+        provedor: str,
+        apelido: str,
+        valor: int,
+        provedor_id: str | None = None,
+        email: str | None = None,
     ) -> None:
         with self._lock:
             self._con.execute(
-                "INSERT INTO pagamentos(ref, provedor, provedor_id, apelido, valor_centavos, status, criado_em)"
-                " VALUES (?,?,?,?,?,'pendente',?)",
-                (ref, provedor, provedor_id, apelido, valor, agora()),
+                "INSERT INTO pagamentos(ref, provedor, provedor_id, apelido, valor_centavos, status,"
+                " criado_em, email) VALUES (?,?,?,?,?,'pendente',?,?)",
+                (ref, provedor, provedor_id, apelido, valor, agora(), email),
             )
             self._con.commit()
+
+    def vincular_pagamento(self, ref: str, usuario_id: str, email: str | None = None) -> None:
+        with self._lock:
+            self._con.execute(
+                "UPDATE pagamentos SET usuario_id=?, email=COALESCE(?, email) WHERE ref=?",
+                (usuario_id, email, ref),
+            )
+            self._con.commit()
+
+    # ---------------------------------------------------------------- contas
+    def obter_ou_criar_usuario(self, id_novo: str, email: str, apelido: str) -> sqlite3.Row:
+        """Uma conta por e-mail. Se já existe, o apelido passa a ser o escolhido agora."""
+        with self._lock:
+            row = self._con.execute("SELECT * FROM usuarios WHERE email=?", (email,)).fetchone()
+            if row is not None and row["apelido"] != apelido:
+                self._con.execute("UPDATE usuarios SET apelido=? WHERE id=?", (apelido, row["id"]))
+                self._con.commit()
+                row = self._con.execute("SELECT * FROM usuarios WHERE email=?", (email,)).fetchone()
+            if row is None:
+                self._con.execute(
+                    "INSERT INTO usuarios(id, email, apelido, criado_em, ultimo_acesso) VALUES (?,?,?,?,?)",
+                    (id_novo, email, apelido, agora(), agora()),
+                )
+                self._con.commit()
+                row = self._con.execute("SELECT * FROM usuarios WHERE email=?", (email,)).fetchone()
+            return row
+
+    def usuario(self, id_: str) -> sqlite3.Row | None:
+        with self._lock:
+            return self._con.execute("SELECT * FROM usuarios WHERE id=?", (id_,)).fetchone()
+
+    def usuario_por_email(self, email: str) -> sqlite3.Row | None:
+        with self._lock:
+            return self._con.execute("SELECT * FROM usuarios WHERE email=?", (email,)).fetchone()
+
+    def tocar_acesso(self, id_: str) -> None:
+        with self._lock:
+            self._con.execute("UPDATE usuarios SET ultimo_acesso=? WHERE id=?", (agora(), id_))
+            self._con.commit()
+
+    def total_usuarios(self) -> int:
+        with self._lock:
+            return self._con.execute("SELECT COUNT(*) FROM usuarios").fetchone()[0]
+
+    def criar_login(self, token_hash: str, usuario_id: str, expira_em: str) -> None:
+        with self._lock:
+            self._con.execute(
+                "INSERT INTO logins(token_hash, usuario_id, criado_em, expira_em) VALUES (?,?,?,?)",
+                (token_hash, usuario_id, agora(), expira_em),
+            )
+            self._con.commit()
+
+    def consumir_login(self, token_hash: str) -> str | None:
+        """Marca o link como usado e devolve o usuário; None se inválido, usado ou vencido."""
+        with self._lock:
+            row = self._con.execute(
+                "SELECT usuario_id, expira_em, usado_em FROM logins WHERE token_hash=?",
+                (token_hash,),
+            ).fetchone()
+            if row is None or row["usado_em"] or row["expira_em"] < agora():
+                return None
+            self._con.execute(
+                "UPDATE logins SET usado_em=? WHERE token_hash=?", (agora(), token_hash)
+            )
+            self._con.commit()
+            return row["usuario_id"]
 
     def pagamento(self, ref: str) -> sqlite3.Row | None:
         with self._lock:

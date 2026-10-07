@@ -4,21 +4,25 @@ Serviço separado do coletor e do CDN: `apuracao/chat/` (FastAPI + WebSocket), p
 Base pública configurável no frontend por `VITE_CHAT_BASE` (padrão `/chat`, proxy em dev).
 
 Fluxo: **pagar R$ 5 (PIX ou cartão) → receber token de acesso → conectar no WebSocket.**
-O pagamento é único (não é assinatura) e vale para toda a apuração (token com validade de 7 dias).
+O pagamento é único (não é assinatura). Quem paga ganha uma **conta** (e-mail) e fica logado
+(token com validade de 1 ano, `CHAT_JWT_DIAS`): é a mesma conta que, depois da apuração, acessa a
+plataforma de dados (docs/PLATAFORMA.md).
 
 ## Endpoints HTTP
 
 ### `POST /chat/checkout`
-Body: `{ "apelido": "Maria", "retorno": "https://site/…" }`
+Body: `{ "apelido": "Maria", "email": "maria@exemplo.com", "retorno": "https://site/…" }`
 Resposta: `{ "url": "https://checkout.stripe.com/…", "ref": "cs_…" }`
 
 - `apelido`: 2–24 caracteres, letras/números/espaço/`_`; é validado e normalizado no servidor.
+- `email`: obrigatório; cria (ou reaproveita) a **conta** quando o pagamento confirma. No Stripe vai
+  como `customer_email` e o e-mail confirmado volta em `customer_details.email` no webhook.
 - O cliente redireciona o navegador para `url`. Ao concluir, o provedor volta para
   `retorno?chat_ref=<ref>`.
 - Em desenvolvimento (`CHAT_PAGAMENTO=dev`) a `url` já é o próprio `retorno?chat_ref=…`, sem cobrar.
 
 ### `GET /chat/acesso?ref=<ref>`
-Resposta `200`: `{ "token": "<jwt>", "apelido": "Maria", "expira_em": "2026-10-27T…" }`
+Resposta `200`: `{ "token": "<jwt>", "apelido": "Maria", "email": "maria@exemplo.com", "expira_em": "2027-10-25T…", "autor": "…" }`
 Resposta `402`: `{ "detail": "pagamento pendente" }` (PIX ainda não compensou; o cliente pode
 tentar de novo a cada 3 s). `404` ref desconhecida. `410` sessão de pagamento expirada (recomeçar).
 
@@ -133,3 +137,22 @@ paywall com o texto "Chat ao vivo + modo telão por R$ 5".
   previsão: é só quem está no chat.
 - Com Redis, contagens de reações são agregadas por processo e publicadas no canal da sala; o
   termômetro usa `INCRBY` em chaves por minuto (`chat:torcida:<sala>:<cand>:<minuto>`, TTL 6 min).
+
+## Conta: quem paga fica logado
+
+- Uma conta por e-mail (`usuarios`), criada na confirmação do pagamento; o pagamento guarda
+  `email` e `usuario_id`. Comprar de novo com o mesmo e-mail reaproveita a conta (o apelido passa a
+  ser o escolhido agora). O `sub` do token é o id da conta (`u_…`); tokens antigos com `sub` = ref
+  continuam válidos.
+- `GET /chat/eu` passa a devolver `email`.
+- **Login por link (sem senha)**:
+  - `POST /conta/login` body `{ "email", "retorno" }` → `{ "ok": true }` sempre (não revela se o
+    e-mail existe). Se existe conta, envia um e-mail (Resend, `RESEND_API_KEY`/`EMAIL_DE`) com
+    `retorno?login=<token>`; o token é de uso único e vale 30 min (`logins`, só o hash no banco).
+    Em `CHAT_PAGAMENTO=dev` sem e-mail configurado, a resposta traz `link` para testar o fluxo.
+  - `GET /conta/entrar?token=` → mesma resposta de `/chat/acesso` (`token`, `apelido`, `email`,
+    `autor`), ou `410` se o link é inválido, já usado ou vencido.
+- Frontend: campo de e-mail obrigatório no paywall; link "Já pagou? Entrar com o e-mail" abre um
+  formulário que chama `/conta/login`; `?login=<token>` na URL é trocado por sessão ao carregar.
+- Segurança: o token fica em `localStorage` (risco aceito para o chat; a plataforma deve migrar para
+  cookie `httpOnly` com sessão no servidor). O link de login nunca é logado em produção.

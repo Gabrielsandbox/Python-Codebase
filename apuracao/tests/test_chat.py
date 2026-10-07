@@ -52,8 +52,12 @@ def proximo(ws, tipo):
             return d
 
 
-def comprar(cliente, apelido="Maria"):
-    r = cliente.post("/chat/checkout", json={"apelido": apelido, "retorno": "https://site.test/ap"})
+def comprar(cliente, apelido="Maria", email=None):
+    email = email or f"{apelido.lower().replace(' ', '')}@exemplo.test"
+    r = cliente.post(
+        "/chat/checkout",
+        json={"apelido": apelido, "email": email, "retorno": "https://site.test/ap"},
+    )
     assert r.status_code == 200, r.text
     ref = r.json()["ref"]
     assert r.json()["url"] == f"https://site.test/ap?chat_ref={ref}"
@@ -258,3 +262,54 @@ def test_previa_publica(cliente):
     assert [m["texto"] for m in r.json()["mensagens"]] == ["prévia do Rio"]
     assert r.json()["mensagens"][0]["apelido"] == "Maria" and "sub" not in r.json()["mensagens"][0]
     assert cliente.get("/chat/previa", params={"sala": "XX"}).status_code == 422
+
+
+def test_conta_e_login_por_email(cliente):
+    """Pagar cria a conta (uma por e-mail), o token dura muito e o link de login reentra."""
+
+    def comprar_json(apelido, email):
+        r = cliente.post(
+            "/chat/checkout",
+            json={"apelido": apelido, "email": email, "retorno": "https://site.test/ap"},
+        )
+        assert r.status_code == 200, r.text
+        r = cliente.get("/chat/acesso", params={"ref": r.json()["ref"]})
+        assert r.status_code == 200, r.text
+        return r.json()
+
+    a1 = comprar_json("Maria", "maria@exemplo.test")
+    a2 = comprar_json("Maria 2", "MARIA@exemplo.test")  # mesmo e-mail, outra compra
+    c1 = _vt("segredo-de-teste-com-mais-de-32-caracteres!", a1["token"])
+    c2 = _vt("segredo-de-teste-com-mais-de-32-caracteres!", a2["token"])
+    assert c1["sub"] == c2["sub"] and c1["sub"].startswith("u_")
+    assert c1["email"] == "maria@exemplo.test"
+    assert a2["apelido"] == "Maria 2"  # a conta passa a usar o apelido escolhido agora
+    assert cliente.get("/chat/estado").json()["contas"] == 1
+    eu = cliente.get("/chat/eu", headers={"Authorization": f"Bearer {a1['token']}"}).json()
+    assert eu["email"] == "maria@exemplo.test" and eu["autor"] == a1["autor"]
+
+    # e-mail inválido no checkout
+    r = cliente.post(
+        "/chat/checkout", json={"apelido": "Zé", "email": "nada", "retorno": "https://x.test/"}
+    )
+    assert r.status_code == 422
+
+    # login por link: dev sem e-mail devolve o link; resposta igual para e-mail desconhecido
+    r = cliente.post(
+        "/conta/login", json={"email": "maria@exemplo.test", "retorno": "https://site.test/ap"}
+    )
+    assert r.status_code == 200 and r.json()["ok"] and "link" in r.json()
+    link = r.json()["link"]
+    assert link.startswith("https://site.test/ap?login=")
+    r2 = cliente.post(
+        "/conta/login", json={"email": "ninguem@exemplo.test", "retorno": "https://site.test/ap"}
+    )
+    assert r2.json() == {"ok": True}
+
+    tok = link.split("login=")[1]
+    r = cliente.get("/conta/entrar", params={"token": tok})
+    assert r.status_code == 200
+    c3 = _vt("segredo-de-teste-com-mais-de-32-caracteres!", r.json()["token"])
+    assert c3["sub"] == c1["sub"] and r.json()["apelido"] == "Maria 2"
+    # link é de uso único
+    assert cliente.get("/conta/entrar", params={"token": tok}).status_code == 410

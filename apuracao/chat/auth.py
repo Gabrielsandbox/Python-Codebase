@@ -30,12 +30,15 @@ def novo_ref() -> str:
     return "ch_" + secrets.token_urlsafe(16)
 
 
-def emitir_token(secret: str, sub: str, apelido: str, dias: int) -> tuple[str, datetime]:
+def emitir_token(
+    secret: str, sub: str, apelido: str, dias: int, email: str | None = None
+) -> tuple[str, datetime]:
     exp = datetime.now(UTC) + timedelta(days=dias)
     tok = jwt.encode(
         {
             "sub": sub,
             "apelido": apelido,
+            **({"email": email} if email else {}),
             "exp": exp,
             "iat": datetime.now(UTC),
             "scope": "chat",

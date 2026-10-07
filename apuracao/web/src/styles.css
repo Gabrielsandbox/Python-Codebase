@@ -2780,3 +2780,28 @@ html[data-chat-layout="sheet"] .pay-legal {
     display: none;
   }
 }
+/* paywall: "já pagou? entrar com o e-mail" ---------------------------------- */
+.pay-login {
+  display: grid;
+  gap: 8px;
+}
+.pay-login-toggle {
+  justify-self: start;
+  padding: 0;
+  font-size: 13px;
+  color: var(--ink-2);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.pay-login-form {
+  display: grid;
+  gap: 8px;
+}
+.pay-login-form[hidden] {
+  display: none;
+}
+.pay-login-msg {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--ink-2);
+}

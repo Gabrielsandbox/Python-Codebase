@@ -4,7 +4,7 @@
 import './chat-ext.css';
 import { el, fmtInt } from '../format';
 import type { Store } from '../store';
-import { acesso, ChatHttpError, estado as lerEstado, guardarSessao, lerSessao, type Estado, type Sessao, ONLINE_MINIMO } from './client';
+import { acesso, ChatHttpError, entrar, estado as lerEstado, guardarSessao, lerSessao, type Estado, type Sessao, ONLINE_MINIMO } from './client';
 import { montarPaywall, type VariantePaywall } from './paywall';
 import { montarPrevia } from './previa';
 import { montarSala } from './sala';
@@ -18,6 +18,7 @@ const ALTURA_PAYWALL = 0.66; // no paywall o botão de pagar precisa aparecer se
 const ALTURA_MIN = 0.34;
 const ALTURA_MAX = 0.88;
 const RETORNO_PARAM = 'chat_ref';
+const LOGIN_PARAM = 'login'; // link de acesso enviado por e-mail (conta)
 
 type Tela = 'paywall' | 'aguardando' | 'sala';
 
@@ -364,9 +365,29 @@ export function montarChat(raiz: HTMLElement, store: Store): ChatApi {
 
   const limparUrl = () => {
     const u = new URL(location.href);
-    if (!u.searchParams.has(RETORNO_PARAM)) return;
+    if (!u.searchParams.has(RETORNO_PARAM) && !u.searchParams.has(LOGIN_PARAM)) return;
     u.searchParams.delete(RETORNO_PARAM);
+    u.searchParams.delete(LOGIN_PARAM);
     history.replaceState(history.state, '', u.pathname + (u.search || '') + u.hash);
+  };
+
+  /** Link de acesso por e-mail: troca o token de uso único por uma sessão e entra na sala. */
+  const concluirLogin = async (tok: string) => {
+    mostrar('aguardando');
+    if (aguardandoTxt) aguardandoTxt.textContent = 'entrando na sua conta…';
+    if (!mq.matches) abrir(true);
+    try {
+      const a = await entrar(tok);
+      const sessao = { token: a.token, apelido: a.apelido, autor: a.autor, email: a.email };
+      guardarSessao(sessao);
+      limparUrl();
+      mostrar('sala', sessao);
+      for (const cb of ouvintesSessao) cb(sessao);
+    } catch (e) {
+      limparUrl();
+      mostrar('paywall');
+      paywall.aviso(e instanceof ChatHttpError && e.status === 410 ? 'Esse link de acesso já foi usado ou venceu. Peça um novo em "Já pagou? Entrar com o e-mail".' : 'Não foi possível entrar agora. Tente de novo em instantes.');
+    }
   };
 
   const concluirPagamento = async (ref: string) => {
@@ -376,7 +397,7 @@ export function montarChat(raiz: HTMLElement, store: Store): ChatApi {
     for (;;) {
       try {
         const a = await acesso(ref);
-        const sessao = { token: a.token, apelido: a.apelido, autor: a.autor };
+        const sessao = { token: a.token, apelido: a.apelido, autor: a.autor, email: a.email };
         guardarSessao(sessao);
         limparUrl();
         mostrar('sala', sessao);
@@ -405,9 +426,12 @@ export function montarChat(raiz: HTMLElement, store: Store): ChatApi {
 
   // ---------------------------------------------------------------- início
   aplicarAbertura();
-  const ref = new URL(location.href).searchParams.get(RETORNO_PARAM);
+  const params = new URL(location.href).searchParams;
+  const ref = params.get(RETORNO_PARAM);
+  const loginTok = params.get(LOGIN_PARAM);
   const sessao = lerSessao();
   if (ref) void concluirPagamento(ref);
+  else if (loginTok) void concluirLogin(loginTok);
   else if (sessao) mostrar('sala', sessao);
   else mostrar('paywall');
 

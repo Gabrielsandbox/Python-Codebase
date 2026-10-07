@@ -71,13 +71,23 @@ def test_checkout_pix_cartao_e_webhook(cfg, monkeypatch):
     )
 
     with TestClient(criar_app(cfg)) as c:
-        r = c.post("/chat/checkout", json={"apelido": "Maria", "retorno": "https://site.test/ap"})
+        r = c.post(
+            "/chat/checkout",
+            json={
+                "apelido": "Maria",
+                "email": "maria@exemplo.test",
+                "retorno": "https://site.test/ap",
+            },
+        )
         assert r.status_code == 200 and r.json()["url"].startswith("https://checkout.stripe.com/")
         ref = r.json()["ref"]
         # parâmetros enviados ao Stripe
         assert enviados["mode"] == "payment"
         assert enviados["allowed_payment_method_types"] == ["card", "pix"]
         assert "payment_method_types" not in enviados  # removido na API 2025+
+        assert (
+            enviados["customer_email"] == "maria@exemplo.test"
+        )  # conta: e-mail preenchido no Checkout
         li = enviados["line_items"][0]["price_data"]
         assert li["currency"] == "brl" and li["unit_amount"] == 500
         assert enviados["client_reference_id"] == ref and enviados["metadata"]["ref"] == ref
@@ -113,7 +123,14 @@ def test_checkout_pix_cartao_e_webhook(cfg, monkeypatch):
         assert r.status_code == 200 and r.json()["apelido"] == "Maria"
 
         # verificação ativa também funciona (cliente volta antes do webhook)
-        r2 = c.post("/chat/checkout", json={"apelido": "Joao", "retorno": "https://site.test/ap"})
+        r2 = c.post(
+            "/chat/checkout",
+            json={
+                "apelido": "Joao",
+                "email": "joao@exemplo.test",
+                "retorno": "https://site.test/ap",
+            },
+        )
         monkeypatch.setattr(
             stripe.checkout.Session,
             "retrieve",

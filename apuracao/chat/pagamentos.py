@@ -27,7 +27,7 @@ class Provedor(Protocol):
     nome: str
 
     def criar_checkout(
-        self, *, ref: str, apelido: str, retorno: str, valor_centavos: int
+        self, *, ref: str, apelido: str, retorno: str, valor_centavos: int, email: str | None = None
     ) -> Checkout: ...
     def verificar(self, *, ref: str, provedor_id: str | None) -> str:
         """Devolve ``pago`` | ``pendente`` | ``falhou``."""
@@ -40,7 +40,7 @@ class ProvedorDev:
     nome = "dev"
 
     def criar_checkout(
-        self, *, ref: str, apelido: str, retorno: str, valor_centavos: int
+        self, *, ref: str, apelido: str, retorno: str, valor_centavos: int, email: str | None = None
     ) -> Checkout:
         return Checkout(url=anexar_query(retorno, chat_ref=ref), provedor_id=None)
 
@@ -62,9 +62,11 @@ class ProvedorStripe:
         self._stripe = stripe
 
     def criar_checkout(
-        self, *, ref: str, apelido: str, retorno: str, valor_centavos: int
+        self, *, ref: str, apelido: str, retorno: str, valor_centavos: int, email: str | None = None
     ) -> Checkout:
         s = self._stripe.checkout.Session.create(
+            # e-mail preenchido no Checkout; o confirmado volta em customer_details.email
+            **({"customer_email": email} if email else {}),
             mode="payment",
             # API 2025+: payment_method_types foi substituído por allowed_payment_method_types
             # (os métodos precisam estar ativados no painel: Settings → Payment methods → Pix).
@@ -84,7 +86,7 @@ class ProvedorStripe:
                 }
             ],
             client_reference_id=ref,
-            metadata={"ref": ref, "apelido": apelido},
+            metadata={"ref": ref, "apelido": apelido, **({"email": email} if email else {})},
             success_url=anexar_query(retorno, chat_ref=ref),
             cancel_url=anexar_query(retorno, chat_cancelado="1"),
             payment_method_options={"pix": {"expires_after_seconds": 1800}},
