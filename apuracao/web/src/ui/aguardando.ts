@@ -2,13 +2,14 @@
 // (meta.json não existe). Mostra o que vem por aí e mantém alertas e chat disponíveis.
 import { el, fmtDataLonga, fmtHoraSeg } from '../format';
 import type { Ativo, Status } from '../types';
-import { abrirWhatsApp, iconeWhatsApp, urlPagina } from './whatsapp';
+import type { Store } from '../store';
+import { montarBotaoWhatsApp, urlPagina } from './whatsapp';
 
 export interface AguardandoApi {
   atualizar(status: Status | null, ok: boolean): void;
 }
 
-export function montarAguardando(raiz: HTMLElement, ativo: Ativo): AguardandoApi {
+export function montarAguardando(raiz: HTMLElement, ativo: Ativo, store: Store): AguardandoApi {
   const ano = (ativo.data_eleicao || '').slice(0, 4);
   const quando = ativo.data_eleicao
     ? `${fmtDataLonga(ativo.data_eleicao)}, a partir das 17h (horário de Brasília)`
@@ -16,10 +17,10 @@ export function montarAguardando(raiz: HTMLElement, ativo: Ativo): AguardandoApi
   const ultima = el('span', { class: 'secs', text: 'verificando o TSE…' });
   const ind = el('p', { class: 'live-ind aguardando-ind' }, el('span', { class: 'beat' }), ultima);
 
-  const share = el('button', { class: 'btn btn-wa', type: 'button' }, iconeWhatsApp(18), el('span', { text: 'Compartilhar no WhatsApp' }));
-  share.addEventListener('click', () =>
-    abrirWhatsApp(`Acompanhe a apuração do ${ativo.turno}º turno em tempo real, com mapa por município e dados oficiais do TSE: ${urlPagina()}`),
-  );
+  const share = montarBotaoWhatsApp(store, {
+    outrosApps: true,
+    texto: () => `Acompanhe a apuração do ${ativo.turno}º turno em tempo real, com mapa por município e dados oficiais do TSE: ${urlPagina()}`,
+  });
 
   raiz.replaceChildren(
     el(

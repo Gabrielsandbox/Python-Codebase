@@ -181,7 +181,7 @@ function modoAguardando(store: Store, ativo: Ativo, urlStatus: string): void {
   montarCabecalho($('topbar'), store, poller);
   montarAlertas($('alertas'));
   montarChat($('chat'), store);
-  const card = montarAguardando($('hero'), ativo);
+  const card = montarAguardando($('hero'), ativo, store);
   $('app').setAttribute('aria-busy', 'false');
   poller.registrar('status', urlStatus, INTERVALO);
 
