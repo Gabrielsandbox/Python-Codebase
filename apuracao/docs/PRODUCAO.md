@@ -94,9 +94,9 @@ Variáveis por serviço (todas em `.env.example`):
 **Estado (07/10/2026)**: projeto `apuracao-2026` criado no workspace SIM (id
 `b4ff4df8-614d-4155-bb5f-a2227e06cbc5`), ambiente `production`, com Redis (template oficial) e os
 quatro serviços abaixo apontando para `gabrielsandbox/python-codebase`, branch `claude/apuracao-2026`,
-Root Directory `apuracao`. Volumes de 1 GB em `/app/data` no chat e no alertas. Domínios Railway:
+Root Directory `apuracao`. Volumes montados em `/var/lib/apuracao` no chat e no alertas (`CHAT_DB` e `ALERTAS_DB` apontam para lá; **não** monte em `/app/data`, isso esconde o `data/ref` da imagem). A imagem define `APURACAO_RAIZ=/app` porque os pacotes ficam em site-packages. Domínios Railway:
 `chat-production-481f.up.railway.app` (chat) e `alertas-production-6b5d.up.railway.app` (alertas).
-Variáveis não secretas já definidas; **faltam** as secretas (tabela da seção 1), que você cola
+**Atenção ao branch**: um redeploy disparado por mudança de variável ou de volume usa o branch configurado em Settings → Source do serviço; se estiver `main` (sem a pasta `apuracao`), o build falha e o deploy anterior continua rodando sem as variáveis novas. Confira que cada serviço aponta para `claude/apuracao-2026` (ou faça o merge para `main`). Variáveis não secretas já definidas; **faltam** as secretas (tabela da seção 1), que você cola
 direto no painel do Railway (Variables), nunca no chat: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`,
 `APURACAO_S3_ENDPOINT` (coletor); `CHAT_JWT_SECRET`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`
 e trocar `CHAT_PAGAMENTO=dev` → `stripe` (chat); `VAPID_*`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_BOT_NOME`,
