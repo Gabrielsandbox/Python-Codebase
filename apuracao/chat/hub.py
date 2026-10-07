@@ -1,9 +1,11 @@
-"""Hub de conexões: broadcast, histórico, presença e mensagens de sistema (placar).
+"""Hub de conexões: salas, broadcast, histórico, presença, reações, termômetro e placar.
 
 Em memória por padrão (1 processo). Com ``redis_url``:
-- ``PUBLISH chat:sala`` leva cada mensagem a todos os processos;
-- ``LPUSH/LTRIM chat:hist`` guarda o histórico compartilhado;
-- ``SET chat:presenca:<proc> <n> EX 15`` por processo; o total é a soma das chaves.
+- ``PUBLISH chat:sala`` leva cada mensagem a todos os processos (campo ``sala`` filtra);
+- ``LPUSH/LTRIM chat:hist:<sala>`` guarda o histórico por sala;
+- ``SET chat:presenca:<proc> {sala: n} EX 15`` por processo; o total é a soma das chaves;
+- ``HINCRBY chat:reacoes:<sala>:<janela2s>`` e ``INCRBY chat:torcida:<sala>:<cand>:<minuto>``
+  agregam reações entre processos (TTL curto).
 """
 
 from __future__ import annotations
@@ -13,7 +15,7 @@ import contextlib
 import logging
 import secrets
 import time
-from collections import deque
+from collections import defaultdict, deque
 from datetime import datetime, timedelta, timezone
 
 import httpx
@@ -24,8 +26,31 @@ log = logging.getLogger("apuracao.chat.hub")
 BRT = timezone(timedelta(hours=-3))
 
 CANAL = "chat:sala"
-HIST = "chat:hist"
+HIST = "chat:hist:"
 PRESENCA = "chat:presenca:"
+REACOES = "chat:reacoes:"
+TORCIDA = "chat:torcida:"
+
+UFS = {
+    "AC", "AL", "AM", "AP", "BA", "CE", "DF", "ES", "GO", "MA", "MG", "MS", "MT", "PA", "PB", "PE",
+    "PI", "PR", "RJ", "RN", "RO", "RR", "RS", "SC", "SE", "SP", "TO", "ZZ",
+}  # fmt: skip
+SALAS = {"geral", *UFS}
+EMOJIS = {"🔥", "👏", "😱", "😂", "🇧🇷"}
+JANELA_REACOES_S = 2
+JANELA_TORCIDA_MIN = 5
+
+
+def sala_valida(s: str | None) -> str | None:
+    s = (s or "geral").strip()
+    s = s.upper() if s.lower() != "geral" else "geral"
+    return s if s in SALAS else None
+
+
+def reacao_valida(valor: str, cands: set[str]) -> bool:
+    if valor in EMOJIS:
+        return True
+    return valor.startswith("torcida:") and valor[8:] in cands
 
 
 def agora_iso() -> str:
@@ -51,12 +76,16 @@ class Hub:
         self.dados_base = dados_base
         self.db = db
         self._conexoes: dict[WebSocket, dict] = {}
-        self._hist: deque[dict] = deque(maxlen=historico)
+        self._hist: dict[str, deque[dict]] = defaultdict(lambda: deque(maxlen=historico))
         self._redis = None
         self._proc = secrets.token_hex(4)
         self._tasks: list[asyncio.Task] = []
-        self._presenca_cache = (0.0, 0)
+        self._presenca_cache: tuple[float, dict[str, int]] = (0.0, {})
         self._ultimo_idg: str | None = None
+        self.cands: set[str] = set()  # ids válidos para "torcida:<id>" (de meta.json)
+        # reações locais (sem redis): sala → valor → n ; torcida: (sala, cand, minuto) → n
+        self._reacoes: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+        self._torcida: dict[tuple[str, str, int], int] = defaultdict(int)
 
     # ------------------------------------------------------------------ ciclo de vida
     async def iniciar(self) -> None:
@@ -67,10 +96,13 @@ class Hub:
             await self._redis.ping()
             self._tasks.append(asyncio.create_task(self._assinar_redis()))
             log.info("hub com redis (%s), proc=%s", self.redis_url, self._proc)
-        else:
-            for m in self.db.ultimas(self.historico_n) if self.db else []:
-                self._hist.append({"tipo": "msg", **m})
+        elif self.db:
+            for sala in SALAS:
+                for m in self.db.ultimas(self.historico_n, sala=sala):
+                    self._hist[sala].append({"tipo": "msg", **m})
         self._tasks.append(asyncio.create_task(self._loop_presenca()))
+        self._tasks.append(asyncio.create_task(self._loop_reacoes()))
+        self._tasks.append(asyncio.create_task(self._loop_termometro()))
         if self.dados_base:
             self._tasks.append(asyncio.create_task(self._loop_placar()))
 
@@ -86,15 +118,19 @@ class Hub:
                 await self._redis.aclose()
 
     # ------------------------------------------------------------------ conexões
-    async def entrar(self, ws: WebSocket, claims: dict) -> None:
+    async def entrar(self, ws: WebSocket, claims: dict, sala: str = "geral") -> None:
         # Envia histórico antes de registrar a conexão, para o loop de presença não
         # entregar um frame antes do "historico".
-        historico = await self.ultimas(claims.get("sub"))
-        self._conexoes[ws] = claims
+        historico = await self.ultimas(sala, claims.get("sub"))
+        self._conexoes[ws] = {**claims, "sala": sala}
         await self._atualizar_presenca()
-        await ws.send_text(orjson.dumps({"tipo": "historico", "mensagens": historico}).decode())
         await ws.send_text(
-            orjson.dumps({"tipo": "presenca", "online": await self.online()}).decode()
+            orjson.dumps({"tipo": "historico", "sala": sala, "mensagens": historico}).decode()
+        )
+        await ws.send_text(
+            orjson.dumps(
+                {"tipo": "presenca", "sala": sala, "online": await self.online(sala)}
+            ).decode()
         )
 
     def sair(self, ws: WebSocket) -> None:
@@ -102,33 +138,43 @@ class Hub:
             with contextlib.suppress(RuntimeError):
                 asyncio.get_running_loop().create_task(self._atualizar_presenca())
 
+    def _locais(self) -> dict[str, int]:
+        out: dict[str, int] = defaultdict(int)
+        for c in self._conexoes.values():
+            out[c.get("sala", "geral")] += 1
+        return dict(out)
+
     async def _atualizar_presenca(self) -> None:
         if self._redis is not None:
             with contextlib.suppress(Exception):
-                await self._redis.set(PRESENCA + self._proc, self.locais, ex=15)
-        self._presenca_cache = (0.0, 0)  # invalida o cache
+                await self._redis.set(PRESENCA + self._proc, orjson.dumps(self._locais()), ex=15)
+        self._presenca_cache = (0.0, {})  # invalida o cache
 
     @property
     def locais(self) -> int:
         return len(self._conexoes)
 
     # ------------------------------------------------------------------ mensagens
-    async def publicar_msg(self, sub: str, apelido: str, texto: str) -> dict:
+    async def publicar_msg(self, sub: str, apelido: str, texto: str, sala: str = "geral") -> dict:
         msg = {
             "tipo": "msg",
             "id": novo_id(),
             "sub": sub,
             "apelido": apelido,
             "texto": texto,
+            "sala": sala,
             "t": agora_iso(),
         }
         if self.db:
-            self.db.gravar_mensagem(msg["id"], sub, apelido, texto, msg["t"])
+            self.db.gravar_mensagem(msg["id"], sub, apelido, texto, msg["t"], sala=sala)
         await self._publicar(msg)
         return msg
 
-    async def publicar_sistema(self, texto: str) -> None:
-        await self._publicar({"tipo": "sistema", "id": novo_id(), "texto": texto, "t": agora_iso()})
+    async def publicar_sistema(self, texto: str, sala: str | None = None) -> None:
+        msg = {"tipo": "sistema", "id": novo_id(), "texto": texto, "t": agora_iso()}
+        if sala:
+            msg["sala"] = sala
+        await self._publicar(msg)
 
     async def _publicar(self, msg: dict) -> None:
         if self._redis is not None:
@@ -136,15 +182,16 @@ class Hub:
             pipe = self._redis.pipeline()
             pipe.publish(CANAL, raw)
             if msg["tipo"] == "msg":
-                pipe.lpush(HIST, raw)
-                pipe.ltrim(HIST, 0, self.historico_n - 1)
+                pipe.lpush(HIST + msg["sala"], raw)
+                pipe.ltrim(HIST + msg["sala"], 0, self.historico_n - 1)
             await pipe.execute()
         else:
             await self._entregar(msg)
 
     async def _entregar(self, msg: dict) -> None:
-        if msg["tipo"] == "msg":
-            self._hist.append(msg)
+        sala = msg.get("sala")  # None = todas as salas
+        if msg["tipo"] == "msg" and sala:
+            self._hist[sala].append(msg)
         sub = msg.get("sub")
         publico = {k: v for k, v in msg.items() if k != "sub"}
         if msg["tipo"] == "msg":
@@ -154,6 +201,8 @@ class Hub:
             raw_outros = raw_eu = orjson.dumps(publico).decode()
         mortas: list[WebSocket] = []
         for ws, claims in list(self._conexoes.items()):
+            if sala and claims.get("sala") != sala:
+                continue
             try:
                 await ws.send_text(raw_eu if sub and claims.get("sub") == sub else raw_outros)
             except Exception:  # noqa: BLE001 — conexão fechada
@@ -161,43 +210,154 @@ class Hub:
         for ws in mortas:
             self.sair(ws)
 
-    async def ultimas(self, sub: str | None = None) -> list[dict]:
+    async def ultimas(self, sala: str = "geral", sub: str | None = None) -> list[dict]:
         if self._redis is not None:
-            raws = await self._redis.lrange(HIST, 0, self.historico_n - 1)
+            raws = await self._redis.lrange(HIST + sala, 0, self.historico_n - 1)
             itens = [orjson.loads(r) for r in reversed(raws)]
         else:
-            itens = list(self._hist)
+            itens = list(self._hist[sala])
         return [
             {**{k: v for k, v in m.items() if k != "sub"}, "eu": bool(sub) and m.get("sub") == sub}
             for m in itens
         ]
 
     # ------------------------------------------------------------------ presença
-    async def online(self) -> int:
+    async def salas(self) -> dict[str, int]:
+        """Online por sala (só salas com gente)."""
         if self._redis is None:
-            return self.locais
-        t, n = self._presenca_cache
+            return self._locais()
+        t, cache = self._presenca_cache
         if time.monotonic() - t < 2:
-            return n
-        total = 0
+            return cache
+        total: dict[str, int] = defaultdict(int)
         async for chave in self._redis.scan_iter(match=PRESENCA + "*"):
             v = await self._redis.get(chave)
-            total += int(v or 0)
-        self._presenca_cache = (time.monotonic(), total)
-        return total
+            if v:
+                with contextlib.suppress(Exception):
+                    for s, n in orjson.loads(v).items():
+                        total[s] += int(n)
+        self._presenca_cache = (time.monotonic(), dict(total))
+        return dict(total)
+
+    async def online(self, sala: str | None = None) -> int:
+        s = await self.salas()
+        return s.get(sala, 0) if sala else sum(s.values())
 
     async def _loop_presenca(self) -> None:
         while True:
             try:
                 await self._atualizar_presenca()
-                n = await self.online()
-                raw = orjson.dumps({"tipo": "presenca", "online": n}).decode()
-                for ws in list(self._conexoes):
-                    with contextlib.suppress(Exception):
-                        await ws.send_text(raw)
+                s = await self.salas()
+                por_sala = {
+                    sala: orjson.dumps({"tipo": "presenca", "sala": sala, "online": n}).decode()
+                    for sala, n in s.items()
+                }
+                for ws, claims in list(self._conexoes.items()):
+                    raw = por_sala.get(claims.get("sala", "geral"))
+                    if raw:
+                        with contextlib.suppress(Exception):
+                            await ws.send_text(raw)
             except Exception:
                 log.exception("presença")
             await asyncio.sleep(5)
+
+    # ------------------------------------------------------------------ reações
+    async def reagir(self, sala: str, valor: str) -> None:
+        janela = int(time.time() // JANELA_REACOES_S)
+        minuto = int(time.time() // 60)
+        if self._redis is not None:
+            pipe = self._redis.pipeline()
+            pipe.hincrby(f"{REACOES}{sala}:{janela}", valor, 1)
+            pipe.expire(f"{REACOES}{sala}:{janela}", 10)
+            if valor.startswith("torcida:"):
+                k = f"{TORCIDA}{sala}:{valor[8:]}:{minuto}"
+                pipe.incrby(k, 1)
+                pipe.expire(k, (JANELA_TORCIDA_MIN + 1) * 60)
+            await pipe.execute()
+        else:
+            self._reacoes[sala][valor] += 1
+            if valor.startswith("torcida:"):
+                self._torcida[(sala, valor[8:], minuto)] += 1
+
+    async def _enviar_sala(self, sala: str, doc: dict) -> None:
+        raw = orjson.dumps(doc).decode()
+        for ws, claims in list(self._conexoes.items()):
+            if claims.get("sala") == sala:
+                with contextlib.suppress(Exception):
+                    await ws.send_text(raw)
+
+    async def _loop_reacoes(self) -> None:
+        """A cada 2 s entrega a contagem da janela anterior a cada sala com gente."""
+        while True:
+            await asyncio.sleep(JANELA_REACOES_S)
+            try:
+                salas = set(self._locais())
+                if self._redis is not None:
+                    janela = int(time.time() // JANELA_REACOES_S) - 1
+                    for sala in salas:
+                        h = await self._redis.hgetall(f"{REACOES}{sala}:{janela}")
+                        if h:
+                            contagem = {k.decode(): int(v) for k, v in h.items()}
+                            await self._enviar_sala(
+                                sala,
+                                {
+                                    "tipo": "reacoes",
+                                    "janela_s": JANELA_REACOES_S,
+                                    "contagem": contagem,
+                                },
+                            )
+                else:
+                    for sala in salas:
+                        contagem = dict(self._reacoes.pop(sala, {}))
+                        if contagem:
+                            await self._enviar_sala(
+                                sala,
+                                {
+                                    "tipo": "reacoes",
+                                    "janela_s": JANELA_REACOES_S,
+                                    "contagem": contagem,
+                                },
+                            )
+            except Exception:
+                log.exception("reações")
+
+    async def torcida(self, sala: str) -> dict[str, int]:
+        minuto = int(time.time() // 60)
+        minutos = range(minuto - JANELA_TORCIDA_MIN + 1, minuto + 1)
+        out: dict[str, int] = {}
+        if self._redis is not None:
+            for cand in self.cands:
+                vals = await self._redis.mget([f"{TORCIDA}{sala}:{cand}:{m}" for m in minutos])
+                n = sum(int(v) for v in vals if v)
+                if n:
+                    out[cand] = n
+        else:
+            for (s, cand, m), n in list(self._torcida.items()):
+                if s != sala:
+                    continue
+                if m < minuto - JANELA_TORCIDA_MIN:
+                    del self._torcida[(s, cand, m)]
+                elif m in minutos:
+                    out[cand] = out.get(cand, 0) + n
+        return out
+
+    async def _loop_termometro(self) -> None:
+        while True:
+            await asyncio.sleep(5)
+            try:
+                for sala in set(self._locais()):
+                    t = await self.torcida(sala)
+                    await self._enviar_sala(
+                        sala,
+                        {
+                            "tipo": "termometro",
+                            "janela_min": JANELA_TORCIDA_MIN,
+                            "torcida": t,
+                            "total": sum(t.values()),
+                        },
+                    )
+            except Exception:
+                log.exception("termômetro")
 
     # ------------------------------------------------------------------ redis
     async def _assinar_redis(self) -> None:
@@ -225,6 +385,7 @@ class Hub:
                     ).json()
                     pref = ativo["prefixo"]
                     meta = (await cli.get(f"{base}/{pref}/meta.json")).json()
+                    self.cands = set(meta.get("cands") or [])
                     st = (
                         await cli.get(
                             f"{base}/{pref}/status.json", headers={"Cache-Control": "no-cache"}

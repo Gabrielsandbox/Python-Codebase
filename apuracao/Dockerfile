@@ -8,8 +8,9 @@ COPY pyproject.toml README.md ./
 COPY apuracao ./apuracao
 COPY historico ./historico
 COPY chat ./chat
+COPY alertas ./alertas
 COPY data/ref ./data/ref
-RUN pip install --no-cache-dir ".[s3,historico,chat]"
+RUN pip install --no-cache-dir ".[s3,historico,chat,alertas,imagens]"
 
 VOLUME ["/app/data"]
 EXPOSE 8000

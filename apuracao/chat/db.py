@@ -47,6 +47,12 @@ class DB:
         self._con.row_factory = sqlite3.Row
         with self._lock:
             self._con.executescript("PRAGMA journal_mode=WAL;" + SCHEMA)
+            cols = {r[1] for r in self._con.execute("PRAGMA table_info(mensagens)")}
+            if "sala" not in cols:  # migração: salas por estado
+                self._con.execute(
+                    "ALTER TABLE mensagens ADD COLUMN sala TEXT NOT NULL DEFAULT 'geral'"
+                )
+                self._con.commit()
 
     # ---------------------------------------------------------------- pagamentos
     def criar_pagamento(
@@ -86,11 +92,13 @@ class DB:
             ).fetchone()[0]
 
     # ---------------------------------------------------------------- mensagens
-    def gravar_mensagem(self, id_: str, sub: str, apelido: str, texto: str, t: str) -> None:
+    def gravar_mensagem(
+        self, id_: str, sub: str, apelido: str, texto: str, t: str, sala: str = "geral"
+    ) -> None:
         with self._lock:
             self._con.execute(
-                "INSERT OR IGNORE INTO mensagens(id, sub, apelido, texto, t) VALUES (?,?,?,?,?)",
-                (id_, sub, apelido, texto, t),
+                "INSERT OR IGNORE INTO mensagens(id, sub, apelido, texto, t, sala) VALUES (?,?,?,?,?,?)",
+                (id_, sub, apelido, texto, t, sala),
             )
             self._con.commit()
 
@@ -98,10 +106,11 @@ class DB:
         with self._lock:
             return self._con.execute("SELECT COUNT(*) FROM mensagens").fetchone()[0]
 
-    def ultimas(self, n: int) -> list[dict]:
+    def ultimas(self, n: int, sala: str = "geral") -> list[dict]:
         with self._lock:
             rows = self._con.execute(
-                "SELECT id, apelido, texto, t FROM mensagens ORDER BY t DESC, id DESC LIMIT ?", (n,)
+                "SELECT id, apelido, texto, t, sala FROM mensagens WHERE sala=? ORDER BY t DESC, id DESC LIMIT ?",
+                (sala, n),
             ).fetchall()
         return [dict(r) for r in reversed(rows)]
 

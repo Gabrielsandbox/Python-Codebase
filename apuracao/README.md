@@ -81,12 +81,30 @@ apuracao/
   tests/               pytest com fixtures reais do TSE
 ```
 
+## Recursos da noite (contratos em `docs/RECURSOS.md`)
+
+- **Caminho para a vitória** (`caminho.json`): votos válidos estimados que faltam, por região,
+  UF e maiores municípios abertos, e o percentual que quem está atrás precisa para empatar.
+  Aritmética sobre o comparecimento do 1º turno, não projeção. Precisa da base:
+  `apuracao snapshot --eleicao 6257 --turno 1 && apuracao base-1turno --eleicao 6257`.
+- **Ritmo** (`ritmo.json`): seções/min, votos/min, ETA de 90% e 100% (velocidade de contagem).
+- **Imagens de compartilhamento** (`og/placar.png`, `og/uf/XX.png`): geradas pelo coletor.
+- **Confira na fonte**: `meta.fonte` e `fonte` em `br.json`/`uf.json` apontam para o JSON do TSE.
+- **Simulador** (ensaio geral, marca tudo como simulação):
+  `apuracao simular --origem 6257 --destino 6258 --duracao 90 --velocidade 6`
+  reproduz uma noite inteira em 15 minutos reais a partir dos dados do 1º turno.
+- **Alertas** (`alertas/`, porta 8002, contrato em `docs/ALERTAS.md`): Web Push (PWA) e bot do
+  Telegram nos marcos (início, 25/50/75/90/100%, virada, definido, matematicamente definido).
+  `python -m alertas gerar-vapid` cria as chaves; `python -m alertas` sobe o serviço.
+
 ## Chat ao vivo (acesso pago, R$ 5)
 
 Serviço separado em `chat/` (contrato em `docs/CHAT.md`): pagamento único via Stripe Checkout
 (PIX ou cartão) → token de acesso (JWT, 7 dias) → WebSocket. Moderação básica (URLs removidas,
 lista de termos em `data/ref/chat-bloqueio.txt`, 1 mensagem a cada 2 s), histórico das últimas
-50 mensagens, contador de presença e mensagens automáticas de sistema quando o placar muda.
+50 mensagens por sala, contador de presença e mensagens automáticas de sistema quando o placar
+muda. Salas "geral" + uma por estado, reações em explosão (🔥 👏 😱 😂 🇧🇷 e torcida por
+candidato, 5/s por pessoa) e termômetro da torcida dos últimos 5 minutos.
 
 ```bash
 # desenvolvimento: sem cobrança (CHAT_PAGAMENTO=dev), 1 processo em memória

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import time
 from datetime import UTC, datetime
 from typing import Any
 
@@ -16,7 +17,7 @@ from pydantic import BaseModel, Field
 from . import JWT_SECRET_PADRAO, Config
 from .auth import ApelidoInvalido, emitir_token, normalizar_apelido, novo_ref, verificar_token
 from .db import DB
-from .hub import Hub
+from .hub import Hub, reacao_valida, sala_valida
 from .moderacao import LimiteTaxa, TextoInvalido, bloqueado, carregar_bloqueio, higienizar
 from .pagamentos import ProvedorStripe, criar_provedor
 
@@ -24,6 +25,7 @@ log = logging.getLogger("apuracao.chat")
 
 WS_NAO_AUTORIZADO = 4401
 WS_LIMITE = 4429
+WS_SALA_INVALIDA = 4400
 
 
 class CheckoutIn(BaseModel):
@@ -64,6 +66,7 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
         return JSONResponse(
             {
                 "online": await hub.online(),
+                "salas": await hub.salas(),
                 "aberto": True,
                 "preco_centavos": cfg.preco_centavos,
                 "mensagens_total": db.total_mensagens(),
@@ -139,16 +142,23 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
 
     # ------------------------------------------------------------------ WebSocket
     @app.websocket("/chat/ws")
-    async def ws_chat(ws: WebSocket, token: str = Query(default="")) -> None:
+    async def ws_chat(
+        ws: WebSocket, token: str = Query(default=""), sala: str = Query(default="geral")
+    ) -> None:
         await ws.accept()  # antes do close, senão o navegador vê 1006 em vez de 4401
         claims = verificar_token(cfg.jwt_secret, token)
         if claims is None or db.bloqueado(claims["sub"]):
             await ws.close(code=WS_NAO_AUTORIZADO)
             return
+        sala_ok = sala_valida(sala)
+        if sala_ok is None:
+            await ws.close(code=WS_SALA_INVALIDA)
+            return
         exp = datetime.fromtimestamp(claims["exp"], tz=UTC)
-        await hub.entrar(ws, claims)
+        await hub.entrar(ws, claims, sala_ok)
         sub, apelido = claims["sub"], claims["apelido"]
         erros_seguidos = 0
+        reacoes_janela: list[float] = []  # instantes das últimas reações (limite 5/s)
         try:
             while True:
                 raw = await ws.receive_text()
@@ -162,6 +172,15 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
                 tipo = dado.get("tipo")
                 if tipo == "ping":
                     await ws.send_text('{"tipo":"pong"}')
+                    continue
+                if tipo == "reacao":
+                    valor = str(dado.get("valor", ""))
+                    agora = time.monotonic()
+                    reacoes_janela[:] = [t for t in reacoes_janela if agora - t < 1.0]
+                    if len(reacoes_janela) >= 5 or not reacao_valida(valor, hub.cands):
+                        continue  # excesso ou valor inválido: ignorado em silêncio
+                    reacoes_janela.append(agora)
+                    await hub.reagir(sala_ok, valor)
                     continue
                 if tipo != "msg":
                     continue
@@ -184,7 +203,7 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
                     )
                     continue
                 erros_seguidos = 0
-                await hub.publicar_msg(sub, apelido, texto)
+                await hub.publicar_msg(sub, apelido, texto, sala_ok)
         except WebSocketDisconnect:
             pass
         except Exception:

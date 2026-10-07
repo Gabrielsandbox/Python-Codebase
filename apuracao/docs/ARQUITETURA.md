@@ -151,6 +151,13 @@ desenho estático.
   como "ensaio" público (mostra o 1º turno enquanto o 2º não começa).
 - [ ] Monitor externo do `status.json` + alerta.
 
+**Recursos da noite (feitos em 07/10)**
+- [x] Caminho para a vitória, ritmo/ETA, imagens de compartilhamento, links para a fonte.
+- [x] Simulador de noite inteira para ensaio geral (marca tudo como simulação).
+- [x] Alertas por Web Push e Telegram nos marcos.
+- [x] Chat com salas por estado, reações e termômetro da torcida.
+- [ ] Interface: caminho, ritmo, meu município, telão, fonte, alertas, chat+ (em andamento).
+
 **Semana 2 (até 19/10) — acervo mínimo vendável**
 - [ ] Backfill 2018/2022/2026 (município×zona) em Parquet; API com chave; página `/acervo`
   com demo (ex.: "seu município em 2018/2022/2026") e CTA de assinatura.

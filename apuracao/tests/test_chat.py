@@ -170,3 +170,61 @@ def test_config_from_env_segredo_padrao(monkeypatch):
     monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test_x")
     with pytest.raises(RuntimeError):
         criar_app(Config.from_env())
+
+
+def test_salas_reacoes_termometro(cliente):
+    """Salas isolam mensagens; reações agregam em 2 s; termômetro soma a torcida."""
+    import time as _time
+
+    from starlette.websockets import WebSocketDisconnect
+
+    cliente.app.state.hub.cands = {"c1", "c2"}
+
+    def ate(ws, tipo):
+        while True:
+            d = json.loads(ws.receive_text())
+            if d["tipo"] == tipo:
+                return d
+
+    t1, _ = comprar(cliente, "Maria")
+    t2, _ = comprar(cliente, "João")
+    # sala inválida → 4400
+    with cliente.websocket_connect(f"/chat/ws?token={t1}&sala=XX") as ws:
+        with pytest.raises(WebSocketDisconnect) as exc:
+            ws.receive_text()
+        assert exc.value.code == 4400
+    with (
+        cliente.websocket_connect(f"/chat/ws?token={t1}&sala=SP") as sp,
+        cliente.websocket_connect(f"/chat/ws?token={t2}") as geral,
+    ):
+        h = json.loads(sp.receive_text())
+        assert h["tipo"] == "historico" and h["sala"] == "SP"
+        assert json.loads(sp.receive_text())["sala"] == "SP"
+        json.loads(geral.receive_text())
+        json.loads(geral.receive_text())
+        est = cliente.get("/chat/estado").json()
+        assert est["salas"] == {"SP": 1, "geral": 1} and est["online"] == 2
+
+        sp.send_text(json.dumps({"tipo": "msg", "texto": "só em SP"}))
+        m = ate(sp, "msg")
+        assert m["sala"] == "SP" and m["eu"] is True
+        # reações: 3 fogos + 2 torcidas; a 6ª reação no mesmo segundo é ignorada
+        for v in ["🔥", "🔥", "🔥", "torcida:c1", "torcida:c1", "torcida:c2", "lixo"]:
+            sp.send_text(json.dumps({"tipo": "reacao", "valor": v}))
+        vistos: dict[str, dict] = {}
+        fim = _time.monotonic() + 8
+        while _time.monotonic() < fim and not ({"reacoes", "termometro"} <= set(vistos)):
+            d = json.loads(sp.receive_text())
+            if d["tipo"] in ("reacoes", "termometro") and d["tipo"] not in vistos:
+                if d["tipo"] == "termometro" and d["total"] == 0:
+                    continue
+                vistos[d["tipo"]] = d
+        assert vistos["reacoes"]["contagem"] == {"🔥": 3, "torcida:c1": 2}  # 5/s: a 6ª caiu
+        assert vistos["termometro"]["torcida"] == {"c1": 2} and vistos["termometro"]["total"] == 2
+        # a sala geral não recebeu a mensagem de SP
+        geral.send_text(json.dumps({"tipo": "msg", "texto": "oi geral"}))
+        g = ate(geral, "msg")
+        assert g["texto"] == "oi geral" and g["sala"] == "geral"
+    # histórico por sala persiste
+    with cliente.websocket_connect(f"/chat/ws?token={t2}&sala=SP") as ws:
+        assert [m["texto"] for m in json.loads(ws.receive_text())["mensagens"]] == ["só em SP"]

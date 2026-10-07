@@ -19,6 +19,9 @@ from pathlib import Path
 import orjson
 
 from . import publish
+from .publish.caminho import Base, calcular_caminho
+from .publish.og import desenhar_placar
+from .publish.ritmo import calcular_ritmo
 from .storage import Storage
 from .tse import urls
 from .tse.client import FetchResult, TSEClient
@@ -78,6 +81,10 @@ class Config:
     raw_dir: Path | None = None
     ref_municipios: Path | None = None  # fallback local p/ mun-e*-cm.json
     eleicao_codigo: str | None = None  # força um código (ex.: 6257 p/ desenvolver com o 1º turno)
+    base_1turno: Path | None = None  # data/ref/base-1turno.json (caminho para a vitória)
+    site_url: str = ""  # aparece na imagem de compartilhamento
+    gerar_og: bool = True
+    simulacao: bool = False  # marca meta/status para o site avisar que não é resultado real
 
 
 @dataclass
@@ -93,6 +100,8 @@ class Estado:
     ultima_mudanca: str | None = None
     meta_publicado_idg: str | None = None
     cargo: str = "1"
+    base: Base | None = None
+    meta_dict: dict | None = None
 
 
 class Collector:
@@ -140,7 +149,12 @@ class Collector:
             raise RuntimeError("Sem lista de municípios do TSE")
 
         est = Estado(eleicao=ele, municipios=muns, cargo=self.cfg.cargo)
-        # retoma linhas do tempo já publicadas (reinício do processo no meio da apuração)
+        if self.cfg.base_1turno:
+            est.base = Base.carregar(self.cfg.base_1turno)
+            if est.base is None:
+                log.warning(
+                    "Sem base do 1º turno em %s: caminho.json não será gerado", self.cfg.base_1turno
+                )
         self.estado = est
         log.info(
             "Eleição %s (%s) turno %s — %d municípios", ele.codigo, ele.nome, ele.turno, len(muns)
@@ -243,12 +257,9 @@ class Collector:
             self._salvar_raw(f"{m.uf.lower()}{m.tse}", r, res.idg)
             mudaram += 1
         if mudaram and est.cands:
-            atual = est.br.gerado_em if est.br and est.br.gerado_em else publish.agora_iso()
-            self.storage.write_json(
-                f"{self.prefixo}/mun.json",
-                publish.build_mun(est.muns, est.cands, atual),
-                max_age=30,
-            )
+            self._publicar_mun()
+            self._publicar_caminho()
+            self._publicar_og_ufs()
         ms = int((time.monotonic() - t0) * 1000)
         log.info(
             "municípios: %d/%d coletados, %d mudaram, %d erros, %d ms",
@@ -266,23 +277,28 @@ class Collector:
         assert est and est.br
         p = self.prefixo
         cands = est.cands
-        if est.meta_publicado_idg != est.br.idg:
-            self.storage.write_json(
-                f"{p}/meta.json",
-                publish.build_meta(est.eleicao, self.cfg.cargo, est.br, cands),
-                max_age=60,
-            )
+        if est.meta_publicado_idg != est.br.idg or est.meta_dict is None:
+            meta = publish.build_meta(est.eleicao, self.cfg.cargo, est.br, cands)
+            meta["fonte"] = self._fontes()
+            if self.cfg.simulacao:
+                meta["simulacao"] = True
+            est.meta_dict = meta
+            self.storage.write_json(f"{p}/meta.json", meta, max_age=60)
             est.meta_publicado_idg = est.br.idg
-        self.storage.write_json(f"{p}/br.json", publish.build_br(est.br, cands))
+        br = publish.build_br(est.br, cands)
+        br["fonte"] = self._url("br")
+        self.storage.write_json(f"{p}/br.json", br)
         atual = est.br.gerado_em or publish.agora_iso()
-        self.storage.write_json(f"{p}/uf.json", publish.build_uf(est.ufs, cands, atual))
+        uf = publish.build_uf(est.ufs, cands, atual)
+        for sigla in uf["ufs"]:
+            uf["ufs"][sigla]["fonte"] = self._url(sigla.lower())
+        self.storage.write_json(f"{p}/uf.json", uf)
         for sigla, res in est.ufs.items():
-            self.storage.write_json(
-                f"{p}/uf/{sigla}.json",
-                publish.build_nivel(
-                    res, cands, nivel="uf", codigo=sigla, nome=publish.UF_NOMES.get(sigla, sigla)
-                ),
+            nivel = publish.build_nivel(
+                res, cands, nivel="uf", codigo=sigla, nome=publish.UF_NOMES.get(sigla, sigla)
             )
+            nivel["fonte"] = self._url(sigla.lower())
+            self.storage.write_json(f"{p}/uf/{sigla}.json", nivel)
         # linhas do tempo
         if est.timeline_br is None:
             est.timeline_br = publish.Timeline.from_dict(
@@ -299,6 +315,89 @@ class Collector:
                 est.timeline_uf[sigla] = tl
             if tl.adicionar(res):
                 self.storage.write_json(f"{p}/timeline/uf/{sigla}.json", tl.to_dict(), max_age=30)
+        self._publicar_derivados(br, uf)
+
+    # ------------------------------------------------------------------ derivados
+    def _fontes(self) -> dict:
+        e = self.estado.eleicao  # type: ignore[union-attr]
+        return {
+            "catalogo": urls.config_eleicoes(),
+            "br": self._url("br"),
+            "uf": urls.resultado(e.ciclo, e.codigo, self.cfg.cargo, "{uf}"),
+            "municipio": urls.resultado(e.ciclo, e.codigo, self.cfg.cargo, "{uf}", "{tse}"),
+        }
+
+    def _publicar_mun(self) -> None:
+        est = self.estado
+        assert est
+        atual = est.br.gerado_em if est.br and est.br.gerado_em else publish.agora_iso()
+        self.storage.write_json(
+            f"{self.prefixo}/mun.json", publish.build_mun(est.muns, est.cands, atual), max_age=30
+        )
+
+    def _publicar_caminho(self) -> None:
+        """caminho.json (precisa da base do 1º turno e de 2 candidatos)."""
+        est = self.estado
+        assert est
+        if est.base is None or len(est.cands) != 2:
+            return
+        atual = est.br.gerado_em if est.br and est.br.gerado_em else publish.agora_iso()
+        try:
+            doc = calcular_caminho(est.base, est.cands, est.br, est.muns, est.municipios, atual)
+        except Exception:
+            log.exception("caminho.json")
+            return
+        self.storage.write_json(f"{self.prefixo}/caminho.json", doc, max_age=10)
+
+    def _publicar_derivados(self, br: dict, uf: dict) -> None:
+        """ritmo.json, caminho.json e imagens OG, após cada mudança nacional."""
+        est = self.estado
+        assert est and est.br
+        p = self.prefixo
+        tl = est.timeline_br.to_dict() if est.timeline_br else None
+        self.storage.write_json(
+            f"{p}/ritmo.json",
+            calcular_ritmo(
+                tl,
+                est.br.secoes_total,
+                est.br.secoes_totalizadas,
+                br["atualizado_em"],
+                votos_total=est.br.votos_total,
+            ),
+            max_age=10,
+        )
+        self._publicar_caminho()
+        if self.cfg.gerar_og and est.meta_dict:
+            try:
+                self.storage.write_bytes(
+                    f"{p}/og/placar.png",
+                    desenhar_placar(est.meta_dict, br, nome_local="Brasil", site=self.cfg.site_url),
+                    content_type="image/png",
+                    max_age=30,
+                )
+            except Exception:
+                log.exception("imagem og nacional")
+            self._ultimo_uf_og = uf
+
+    def _publicar_og_ufs(self) -> None:
+        """Imagens por UF: mais caras (28 PNGs), geradas no ritmo do ciclo municipal."""
+        est = self.estado
+        uf = getattr(self, "_ultimo_uf_og", None)
+        if not (self.cfg.gerar_og and est and est.meta_dict and uf):
+            return
+        try:
+            for sigla, bloco in uf["ufs"].items():
+                bloco = {**bloco, "cands": est.cands, "atualizado_em": uf["atualizado_em"]}
+                self.storage.write_bytes(
+                    f"{self.prefixo}/og/uf/{sigla}.png",
+                    desenhar_placar(
+                        est.meta_dict, bloco, nome_local=bloco["nome"], site=self.cfg.site_url
+                    ),
+                    content_type="image/png",
+                    max_age=60,
+                )
+        except Exception:
+            log.exception("imagens og por UF")
 
     def _publicar_status(self, t0: float, erros: int, *, aguardando: bool | None = None) -> None:
         est = self.estado
@@ -314,6 +413,7 @@ class Collector:
             municipios=len(est.muns),
         )
         st["aguardando_totalizacao"] = aguardando
+        st["simulacao"] = self.cfg.simulacao
         st["eleicao"] = est.eleicao.codigo
         st["turno"] = est.eleicao.turno
         self.storage.write_json(f"{self.prefixo}/status.json", st, max_age=5)

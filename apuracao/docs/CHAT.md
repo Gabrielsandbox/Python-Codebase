@@ -90,3 +90,29 @@ STRIPE_WEBHOOK_SECRET=whsec_…
   mensagens de sistema em destaque discreto, contador de online, estado da conexão
   (reconnect com backoff), input com contador de caracteres e Enter para enviar.
 - Token expirado/inválido (4401): apaga o token e volta ao paywall.
+
+## Extensões: salas por estado, reações e termômetro
+
+### Salas
+- WebSocket: `GET /chat/ws?token=<jwt>&sala=geral` (padrão) ou `&sala=SP` (sigla de UF em
+  maiúsculas; `ZZ` = exterior). Sala inválida → `4400`.
+- Cada `msg` e cada item de `historico` traz `"sala": "SP"`. Histórico e presença são por sala.
+- `GET /chat/estado` passa a incluir `"salas": { "geral": 1234, "SP": 210, … }` (só salas com gente).
+- Trocar de sala = fechar e reconectar com outro `sala` (o cliente mantém o token).
+
+### Reações (explosão)
+- Cliente → servidor: `{ "tipo": "reacao", "valor": "🔥" }`. Valores aceitos: `🔥 👏 😱 😂 🇧🇷`
+  e `torcida:<id do candidato>` (ids de `meta.cands`). Limite: 5 reações/s por usuário (excesso é
+  ignorado em silêncio).
+- Servidor → clientes da sala, a cada 2 s quando houver algo:
+  `{ "tipo": "reacoes", "janela_s": 2, "contagem": { "🔥": 12, "torcida:280002551544": 30 } }`.
+  O cliente anima uma "explosão" proporcional à contagem (emojis subindo), estilo Twitch.
+
+### Termômetro da torcida
+- Servidor → clientes da sala, a cada 5 s:
+  `{ "tipo": "termometro", "janela_min": 5, "torcida": { "280002542548": 1234, "280002551544": 987 }, "total": 2221 }`.
+  Soma das reações `torcida:*` dos últimos 5 minutos na sala. O cliente mostra uma barra dividida
+  com as cores dos candidatos e o texto "torcida do chat nos últimos 5 min". Não é pesquisa nem
+  previsão: é só quem está no chat.
+- Com Redis, contagens de reações são agregadas por processo e publicadas no canal da sala; o
+  termômetro usa `INCRBY` em chaves por minuto (`chat:torcida:<sala>:<cand>:<minuto>`, TTL 6 min).

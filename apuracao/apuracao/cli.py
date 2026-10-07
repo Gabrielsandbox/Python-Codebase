@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from pathlib import Path
 
 import typer
@@ -78,6 +79,8 @@ def _config(
         concurrency=concurrency,
         raw_dir=(RAIZ / "data" / "raw") if raw else None,
         ref_municipios=RAIZ / "data" / "ref" / "tse-municipios-2026.json",
+        base_1turno=RAIZ / "data" / "ref" / "base-1turno.json",
+        site_url=os.environ.get("APURACAO_SITE_URL", ""),
     )
 
 
@@ -122,6 +125,65 @@ def coletar(
         asyncio.run(col.rodar())
     except KeyboardInterrupt:
         col.parar()
+
+
+@app.command(name="base-1turno")
+def base_1turno(
+    eleicao: str = typer.Option("6257", help="Código da eleição do 1º turno já totalizada"),
+    cargo: str = "1",
+) -> None:
+    """Gera data/ref/base-1turno.json (seções, válidos e votos dos finalistas por município),
+    a referência do "caminho para a vitória". Rode depois de `apuracao snapshot --eleicao 6257`."""
+    import orjson
+
+    from .publish.caminho import construir_base
+
+    st = storage_mod.LocalStorage(RAIZ / "data" / "latest")
+    pref = f"{eleicao}/{cargo}"
+    meta, mun, br = (st.read_json(f"{pref}/{n}.json") for n in ("meta", "mun", "br"))
+    if not (meta and mun and br):
+        raise typer.BadParameter(
+            f"snapshot incompleto em data/latest/{pref}; rode `apuracao snapshot` antes"
+        )
+    doc = construir_base(meta, mun, br)  # type: ignore[arg-type]
+    out = RAIZ / "data" / "ref" / "base-1turno.json"
+    out.write_bytes(orjson.dumps(doc))
+    console.print(
+        f"[green]ok[/] {out} — {len(doc['por_mun'])} municípios, finalistas: "
+        + " × ".join(doc["candidatos"].values())
+    )
+
+
+@app.command()
+def simular(
+    origem: str = typer.Option("6257", help="Eleição de origem (snapshot completo em data/latest)"),
+    destino: str = typer.Option("6258", help="Código que o site vai enxergar como ativo"),
+    duracao: float = typer.Option(90.0, help="minutos simulados de apuração"),
+    velocidade: float = typer.Option(6.0, help="minutos simulados por segundo real"),
+    tick: float = typer.Option(10.0, help="segundos reais entre publicações"),
+    cargo: str = "1",
+    verbose: bool = False,
+) -> None:
+    """Ensaio geral: reproduz uma noite de apuração com os dados do 1º turno (não é previsão)."""
+    from .simulador import Simulador
+
+    _log(verbose)
+    origem_st = storage_mod.LocalStorage(RAIZ / "data" / "latest")
+    sim = Simulador(
+        origem_st,
+        storage_mod.from_env(str(RAIZ / "data" / "latest")),
+        prefixo_origem=f"{origem}/{cargo}",
+        codigo_destino=destino,
+        duracao_min=duracao,
+        velocidade=velocidade,
+        tick_s=tick,
+        ref_municipios=RAIZ / "data" / "ref" / "tse-municipios-2026.json",
+        base_1turno=RAIZ / "data" / "ref" / "base-1turno.json",
+    )
+    try:
+        asyncio.run(sim.rodar())
+    except KeyboardInterrupt:
+        pass
 
 
 @app.command()
