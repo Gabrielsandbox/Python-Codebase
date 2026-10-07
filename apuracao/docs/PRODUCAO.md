@@ -27,8 +27,8 @@ no registrador, ou já estão lá se foram comprados no Cloudflare Registrar).
 | `www.apuracaoaovivo.com` | — | Pages (custom domain) ou Redirect Rule → raiz | Pages/você |
 | `dados.apuracaoaovivo.com` | — | bucket R2 `apuracao-dados` (Custom Domain do bucket) | R2 cria |
 | `ensaio-dados.apuracaoaovivo.com` | — | bucket R2 `apuracao-ensaio` | R2 cria |
-| `chat.apuracaoaovivo.com` | CNAME | domínio do serviço chat no Railway | você |
-| `alertas.apuracaoaovivo.com` | CNAME | domínio do serviço alertas no Railway | você |
+| `chat.apuracaoaovivo.com` | CNAME | `o7pfqz8k.up.railway.app` (serviço chat no Railway) + TXT `_railway-verify.chat` = `railway-verify=96becc9860bfbd6df520f6e78faed2ba2ad754768f5a089ae05cc0390304437b` | você |
+| `alertas.apuracaoaovivo.com` | CNAME | `w57elkau.up.railway.app` (serviço alertas no Railway) + TXT `_railway-verify.alertas` = `railway-verify=d73a1dfb62e5a4143ae68ff7b1879e007ce881c7a4d13e30d65e973310fb622d` | você |
 | `api.apuracaoaovivo.com` | CNAME | serviço api (acervo, fase 2) | você |
 | `apura2026.com` e `www` | Redirect Rule | `https://apuracaoaovivo.com/$1` (301, preserva caminho e hash não é preservado pelo servidor; o site lê `#m=`/`#uf=` só no principal) | você |
 
@@ -90,6 +90,18 @@ Variáveis por serviço (todas em `.env.example`):
    ```
 
 ## 3. Railway (coletor, chat, alertas, api)
+
+**Estado (07/10/2026)**: projeto `apuracao-2026` criado no workspace SIM (id
+`b4ff4df8-614d-4155-bb5f-a2227e06cbc5`), ambiente `production`, com Redis (template oficial) e os
+quatro serviços abaixo apontando para `gabrielsandbox/python-codebase`, branch `claude/apuracao-2026`,
+Root Directory `apuracao`. Volumes de 1 GB em `/app/data` no chat e no alertas. Domínios Railway:
+`chat-production-481f.up.railway.app` (chat) e `alertas-production-6b5d.up.railway.app` (alertas).
+Variáveis não secretas já definidas; **faltam** as secretas (tabela da seção 1), que você cola
+direto no painel do Railway (Variables), nunca no chat: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`,
+`APURACAO_S3_ENDPOINT` (coletor); `CHAT_JWT_SECRET`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`
+e trocar `CHAT_PAGAMENTO=dev` → `stripe` (chat); `VAPID_*`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_BOT_NOME`,
+`TELEGRAM_CANAL` (alertas); `APURACAO_API_KEYS` (api). Enquanto `CHAT_PAGAMENTO=dev`, o chat
+libera acesso sem cobrar: **não aponte o site para ele** antes de trocar.
 
 Um projeto, uma imagem (`apuracao/Dockerfile`), quatro serviços. Em cada serviço: Settings →
 Source = este repositório, **Root Directory = `apuracao`**, Builder = Dockerfile, e
