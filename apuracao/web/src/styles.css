@@ -2612,7 +2612,20 @@ html[data-chat-layout="sheet"] .pay-legal {
 .aguardando {
   padding: 28px;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
+}
+.aguardando > * {
+  min-width: 0;
+}
+.aguardando .wa-share {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+}
+@media (max-width: 600px) {
+  .aguardando {
+    padding: 20px 16px;
+  }
 }
 .aguardando h1 {
   margin: 0;
