@@ -170,7 +170,7 @@ export function montarSala(opts: SalaOpts): Sala {
 
   // finalistas (store.principais) para os botões de torcida e o termômetro
   const torcidas = (): Torcida[] =>
-    store.principais.map((i) => ({ id: store.meta.cands[i], nome: nomeProprio(store.cand(i)?.nome ?? '?'), cor: store.paleta.cores[i] }));
+    !store.meta ? [] : store.principais.map((i) => ({ id: store.meta.cands[i], nome: nomeProprio(store.cand(i)?.nome ?? '?'), cor: store.paleta.cores[i] }));
   const aplicarTorcidas = () => {
     const t = torcidas();
     reacoes.setTorcidas(t);
