@@ -1,5 +1,5 @@
-// Painel do chat ao vivo: coluna à direita no desktop (≥1100 px), bottom sheet no
-// celular. Fluxo: paywall → checkout → retorno com ?chat_ref= → token → sala (WS).
+// Painel do chat ao vivo: coluna à direita no desktop (≥1100 px); no celular, painel ancorado
+// embaixo que divide a tela com a apuração (altura ajustável arrastando o cabeçalho). Fluxo: paywall → checkout → retorno com ?chat_ref= → token → sala (WS).
 
 import './chat-ext.css';
 import { el, fmtInt } from '../format';
@@ -12,6 +12,11 @@ import { lerSalaGuardada, montarSeletorSalas, SALA_GERAL, ufDoHash } from './sal
 
 const DESKTOP = '(min-width: 1100px)';
 const CHAVE_PAINEL = 'chat_painel'; // preferência de aberto/fechado no desktop
+const CHAVE_ALTURA = 'chat_altura'; // fração da tela ocupada pelo painel ancorado (celular)
+const ALTURA_PADRAO = 0.55;
+const ALTURA_PAYWALL = 0.66; // no paywall o botão de pagar precisa aparecer sem rolar
+const ALTURA_MIN = 0.34;
+const ALTURA_MAX = 0.88;
 const RETORNO_PARAM = 'chat_ref';
 
 type Tela = 'paywall' | 'aguardando' | 'sala';
@@ -96,7 +101,7 @@ export function montarChat(raiz: HTMLElement, store: Store): ChatApi {
     html.dataset.chat = aberto ? 'aberto' : 'fechado';
     html.dataset.chatLayout = mq.matches ? 'coluna' : 'sheet';
     fab.setAttribute('aria-expanded', String(aberto));
-    backdrop.hidden = !(aberto && !mq.matches);
+    backdrop.hidden = true; // painel ancorado: a página continua visível e rolável por cima
     rail.hidden = aberto || !mq.matches;
     painel.setAttribute('aria-hidden', String(!aberto));
     btnFechar.title = mq.matches ? 'Recolher' : 'Fechar';
@@ -137,13 +142,29 @@ export function montarChat(raiz: HTMLElement, store: Store): ChatApi {
 
   // ---------------------------------------------------------------- teclado no celular (visualViewport)
   const vv = window.visualViewport;
+  const lerFracao = (): number => {
+    try {
+      const v = parseFloat(localStorage.getItem(CHAVE_ALTURA) ?? '');
+      if (Number.isFinite(v)) return Math.min(ALTURA_MAX, Math.max(ALTURA_MIN, v));
+    } catch {
+      /* sem armazenamento */
+    }
+    return ALTURA_PADRAO;
+  };
+  let fracao = lerFracao();
+  const aplicarAltura = (altura: number, bottom: number) => {
+    raiz.style.setProperty('--sheet-h', `${altura}px`);
+    raiz.style.setProperty('--sheet-bottom', `${bottom}px`);
+    // a página ganha esse espaço embaixo para continuar rolável até o fim
+    html.style.setProperty('--dock-h', `${altura + bottom}px`);
+  };
   const ajustarViewport = () => {
     if (!vv) return;
     const tecladoAberto = vv.height < window.innerHeight * 0.75;
-    const altura = tecladoAberto ? Math.max(240, vv.height - 8) : Math.round(vv.height * 0.7);
+    const alvo = tela === 'paywall' ? Math.max(fracao, ALTURA_PAYWALL) : fracao;
+    const altura = tecladoAberto ? Math.max(240, vv.height - 8) : Math.round(vv.height * alvo);
     const bottom = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
-    raiz.style.setProperty('--sheet-h', `${altura}px`);
-    raiz.style.setProperty('--sheet-bottom', `${bottom}px`);
+    aplicarAltura(altura, bottom);
   };
   let viewportLigado = false;
   function ligarViewport() {
@@ -160,16 +181,20 @@ export function montarChat(raiz: HTMLElement, store: Store): ChatApi {
     vv.removeEventListener('scroll', ajustarViewport);
     raiz.style.removeProperty('--sheet-h');
     raiz.style.removeProperty('--sheet-bottom');
+    html.style.removeProperty('--dock-h');
   }
 
-  // ---------------------------------------------------------------- arrastar para fechar (celular)
+  // ---------------------------------------------------------------- arrastar o cabeçalho: ajusta a altura (celular)
+  // Para cima aumenta, para baixo diminui; abaixo do mínimo, fecha. A altura escolhida fica guardada.
   let y0: number | null = null;
+  let h0 = 0;
   head.addEventListener(
     'touchstart',
     (e) => {
       if (mq.matches) return;
       y0 = e.touches[0].clientY;
-      painel.style.transition = 'none';
+      h0 = raiz.getBoundingClientRect().height;
+      raiz.style.transition = 'none';
     },
     { passive: true },
   );
@@ -177,18 +202,29 @@ export function montarChat(raiz: HTMLElement, store: Store): ChatApi {
     'touchmove',
     (e) => {
       if (y0 === null) return;
-      const dy = Math.max(0, e.touches[0].clientY - y0);
-      painel.style.transform = `translateY(${dy}px)`;
+      const h = Math.min(window.innerHeight * ALTURA_MAX, Math.max(120, h0 - (e.touches[0].clientY - y0)));
+      raiz.style.setProperty('--sheet-h', `${Math.round(h)}px`);
+      html.style.setProperty('--dock-h', `${Math.round(h)}px`);
     },
     { passive: true },
   );
   const soltar = (e: TouchEvent) => {
     if (y0 === null) return;
-    const dy = (e.changedTouches[0]?.clientY ?? y0) - y0;
+    const h = h0 - ((e.changedTouches[0]?.clientY ?? y0) - y0);
     y0 = null;
-    painel.style.transition = '';
-    painel.style.transform = '';
-    if (dy > 90) abrir(false);
+    raiz.style.transition = '';
+    const base = vv?.height ?? window.innerHeight;
+    if (h < base * 0.26) {
+      abrir(false);
+      return;
+    }
+    fracao = Math.min(ALTURA_MAX, Math.max(ALTURA_MIN, h / base));
+    try {
+      localStorage.setItem(CHAVE_ALTURA, fracao.toFixed(3));
+    } catch {
+      /* sem armazenamento */
+    }
+    ajustarViewport();
   };
   head.addEventListener('touchend', soltar);
   head.addEventListener('touchcancel', soltar);
@@ -306,6 +342,7 @@ export function montarChat(raiz: HTMLElement, store: Store): ChatApi {
       seletor.ligar();
     }
     raiz.dataset.tela = t;
+    if (viewportLigado) ajustarViewport();
     if (t !== 'sala') conn.hidden = true;
     renderOnline();
     sincronizarPrevia();

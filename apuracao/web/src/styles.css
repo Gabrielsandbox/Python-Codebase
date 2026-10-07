@@ -1902,8 +1902,8 @@ html[data-chat-layout="sheet"] .chat {
   left: 0;
   right: 0;
   bottom: var(--sheet-bottom, 0px);
-  height: var(--sheet-h, 70vh);
-  height: var(--sheet-h, 70dvh);
+  height: var(--sheet-h, 50vh);
+  height: var(--sheet-h, 50dvh);
   max-height: 100%;
   z-index: 45;
   transform: translateY(102%);
@@ -1928,6 +1928,16 @@ html[data-chat-layout="sheet"] .chat-panel {
 html[data-chat-layout="sheet"] .chat-rail {
   display: none;
 }
+/* painel ancorado: a página continua visível e rolável por cima; ganha o espaço do painel embaixo */
+html[data-chat-layout="sheet"][data-chat="aberto"] .page {
+  padding-bottom: calc(var(--dock-h, 50dvh) + 24px);
+}
+html[data-chat-layout="sheet"][data-chat="aberto"] .footer {
+  padding-bottom: calc(var(--dock-h, 50dvh) + 16px);
+}
+html[data-chat-layout="sheet"][data-chat="aberto"] .erro {
+  bottom: calc(var(--dock-h, 50dvh) + 12px);
+}
 .chat-backdrop {
   position: fixed;
   inset: 0;
@@ -1943,18 +1953,24 @@ html[data-chat-layout="sheet"] .chat-rail {
   z-index: 43;
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 11px 16px 11px 14px;
+  gap: 10px;
+  min-height: 56px;
+  padding: 0 24px 0 20px;
   border: 0;
   border-radius: 999px;
   background: var(--ink);
   color: var(--bg);
-  font-weight: 700;
-  font-size: 14px;
+  font-weight: 800;
+  font-size: 17px;
+  letter-spacing: -0.01em;
   box-shadow:
-    0 2px 4px rgba(0, 0, 0, 0.15),
-    0 12px 28px -10px rgba(0, 0, 0, 0.45);
+    0 2px 4px rgba(0, 0, 0, 0.18),
+    0 14px 32px -10px rgba(0, 0, 0, 0.5);
   cursor: pointer;
+}
+.chat-fab .live-dot {
+  width: 10px;
+  height: 10px;
 }
 .chat-fab .num {
   color: color-mix(in srgb, var(--bg) 70%, transparent);
@@ -1982,8 +1998,12 @@ html:not([data-chat-layout]) .chat-fab {
   display: none;
 }
 html[data-chat-layout="sheet"] .chat-head {
-  padding-top: 18px;
+  padding: 16px 10px 8px 16px;
   touch-action: none;
+  cursor: ns-resize;
+}
+html[data-chat-layout="sheet"] .chat-title h2 {
+  font-size: 15px;
 }
 html[data-chat-layout="sheet"] .chat-handle {
   display: block;
@@ -2680,5 +2700,83 @@ html[data-chat-layout="sheet"] .pay-legal {
   }
   .aguardando .btn-wa {
     width: 100%;
+  }
+}
+
+/* placar compacto preso ao topo (celular), quando o placar grande sai da tela ------------ */
+.mini-placar {
+  display: grid;
+  grid-template-columns: auto minmax(40px, 1fr) auto auto;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 12px 7px;
+  border: 0;
+  border-top: 1px solid var(--line);
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.mini-placar[hidden] {
+  display: none;
+}
+.mini-placar .mp-side {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  min-width: 0;
+}
+.mini-placar .mp-side b {
+  font-weight: 600;
+  color: var(--ink-2);
+}
+.mini-placar .mp-side .num {
+  font-weight: 800;
+  font-size: 14px;
+  letter-spacing: -0.02em;
+}
+.mini-placar .mp-sw {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  font-size: 9.5px;
+  font-weight: 800;
+  font-style: normal;
+  flex: none;
+}
+.mini-placar .mp-bar {
+  display: flex;
+  height: 6px;
+  border-radius: 3px;
+  overflow: hidden;
+  background: var(--surface-2);
+}
+.mini-placar .mp-bar i {
+  display: block;
+  height: 100%;
+  transition: width 0.6s ease;
+}
+.mini-placar .mp-bar i + i {
+  margin-left: auto;
+}
+.mini-placar .mp-sec {
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+@media (max-width: 400px) {
+  .mini-placar .mp-side b {
+    display: none;
+  }
+}
+@media (min-width: 1100px) {
+  .mini-placar {
+    display: none;
   }
 }

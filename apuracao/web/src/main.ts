@@ -14,6 +14,7 @@ import { montarChat } from './chat';
 import { montarAlertas } from './alertas';
 import { montarRecursos } from './recursos';
 import { montarAguardando } from './ui/aguardando';
+import { montarMiniPlacar } from './ui/miniPlacar';
 import type { Ativo } from './types';
 
 // Base dos arquivos estáticos (geo/ref): '/' normalmente, './' em builds relativos (--base ./).
@@ -114,6 +115,7 @@ async function iniciar(): Promise<void> {
   montarAlertas($('alertas'));
   const chat = montarChat($('chat'), store);
   montarPlacar($('hero'), store);
+  montarMiniPlacar($('topbar'), store, $('hero'));
   const secao = montarSecaoMapa($('mapa'), store);
   montarTotais($('totais'), store);
   montarLinha($('linha'), store);
