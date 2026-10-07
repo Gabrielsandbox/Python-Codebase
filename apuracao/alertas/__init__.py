@@ -21,6 +21,10 @@ class Config:
     vapid_email: str = "mailto:contato@example.com"
     telegram_token: str | None = None
     telegram_bot: str | None = None
+    telegram_canal: str | None = (
+        None  # @canal público: 1 post alcança todo mundo, sem limite de 30 msg/s
+    )
+    push_concorrencia: int = 64
     telegram_polling: bool = True  # dev: long polling; produção: webhook
     intervalo_s: float = 10.0
     dev: bool = True
@@ -40,6 +44,8 @@ class Config:
             vapid_email=env("VAPID_CLAIMS_EMAIL", "mailto:contato@example.com"),
             telegram_token=env("TELEGRAM_BOT_TOKEN") or None,
             telegram_bot=env("TELEGRAM_BOT_NOME") or None,
+            telegram_canal=env("TELEGRAM_CANAL") or None,
+            push_concorrencia=int(env("ALERTAS_PUSH_CONCORRENCIA", "64")),
             telegram_polling=env("TELEGRAM_POLLING", "1") == "1",
             intervalo_s=float(env("ALERTAS_INTERVALO_S", "10")),
             dev=env("ALERTAS_DEV", "1") == "1",

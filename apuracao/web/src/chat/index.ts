@@ -338,7 +338,7 @@ export function montarChat(raiz: HTMLElement, store: Store): ChatApi {
     for (;;) {
       try {
         const a = await acesso(ref);
-        const sessao = { token: a.token, apelido: a.apelido };
+        const sessao = { token: a.token, apelido: a.apelido, autor: a.autor };
         guardarSessao(sessao);
         limparUrl();
         mostrar('sala', sessao);

@@ -172,7 +172,7 @@ class Telegram:
     def ativo(self) -> bool:
         return self.base is not None
 
-    async def enviar(self, cli: httpx.AsyncClient, chat_id: int, texto: str) -> bool:
+    async def enviar(self, cli: httpx.AsyncClient, chat_id: int | str, texto: str) -> bool:
         if not self.base:
             return False
         r = await cli.post(
@@ -221,6 +221,11 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
     tasks: list[asyncio.Task] = []
 
     async def disparar(ev: Evento, cli: httpx.AsyncClient) -> int:
+        """Envia a todos os inscritos no tipo do evento, uma única vez por chave.
+
+        Web Push em paralelo (``push_concorrencia`` threads: 200 mil inscrições ≈ 1–2 min);
+        Telegram: um post no canal (ilimitado) + mensagens individuais a ~25/s (limite da API).
+        """
         if not db.marcar_enviado(ev.chave):
             return 0
         n = 0
@@ -230,16 +235,32 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
             "url": cfg.site_url,
             "tag": ev.chave,
         }
-        for row in db.push_para(ev.tipo):
-            ok, remover = await asyncio.to_thread(push.enviar, json.loads(row["sub_json"]), payload)
-            if ok:
-                n += 1
-            else:
+        subs = db.push_para(ev.tipo)
+        sem = asyncio.Semaphore(cfg.push_concorrencia)
+
+        async def um(row) -> bool:
+            async with sem:
+                ok, remover = await asyncio.to_thread(
+                    push.enviar, json.loads(row["sub_json"]), payload
+                )
+            if not ok:
                 db.push_falhou(row["endpoint"], remover)
-        for chat_id in db.tg_para(ev.tipo):
-            if await tg.enviar(cli, chat_id, f"{ev.titulo}\n{ev.corpo}\n{cfg.site_url}"):
+            return ok
+
+        if subs:
+            n += sum(await asyncio.gather(*(um(r) for r in subs)))
+        texto = f"{ev.titulo}\n{ev.corpo}\n{cfg.site_url}"
+        if cfg.telegram_canal and tg.ativo:
+            with contextlib.suppress(Exception):
+                if await tg.enviar(cli, cfg.telegram_canal, texto):
+                    n += 1
+        chats = db.tg_para(ev.tipo)
+        for i, chat_id in enumerate(chats):
+            if await tg.enviar(cli, chat_id, texto):
                 n += 1
-        log.info("evento %s → %d envios", ev.chave, n)
+            if i % 25 == 24:
+                await asyncio.sleep(1.0)  # limite da API do Telegram (~30 msg/s)
+        log.info("evento %s → %d envios (%d push, %d telegram)", ev.chave, n, len(subs), len(chats))
         return n
 
     async def vigia() -> None:
@@ -331,6 +352,7 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
         return {
             "vapid_publica": cfg.vapid_public_key,
             "telegram_bot": cfg.telegram_bot,
+            "telegram_canal": cfg.telegram_canal,
             "eventos": EVENTOS,
             **db.contagens(),
         }

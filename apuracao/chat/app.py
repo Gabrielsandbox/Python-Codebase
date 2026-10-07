@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field
 from . import JWT_SECRET_PADRAO, Config
 from .auth import ApelidoInvalido, emitir_token, normalizar_apelido, novo_ref, verificar_token
 from .db import DB
-from .hub import Hub, reacao_valida, sala_valida
+from .hub import Hub, codigo_autor, reacao_valida, sala_valida
 from .moderacao import LimiteTaxa, TextoInvalido, bloqueado, carregar_bloqueio, higienizar
 from .pagamentos import ProvedorStripe, criar_provedor
 
@@ -129,7 +129,12 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
                 return JSONResponse({"detail": "pagamento pendente"}, status_code=402)
         token, exp = emitir_token(cfg.jwt_secret, ref, pg["apelido"], cfg.jwt_dias)
         return JSONResponse(
-            {"token": token, "apelido": pg["apelido"], "expira_em": exp.isoformat()}
+            {
+                "token": token,
+                "apelido": pg["apelido"],
+                "expira_em": exp.isoformat(),
+                "autor": codigo_autor(ref),
+            }
         )
 
     @app.get("/chat/eu")
@@ -142,6 +147,7 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
         return {
             "apelido": claims["apelido"],
             "expira_em": datetime.fromtimestamp(claims["exp"], tz=UTC).isoformat(),
+            "autor": codigo_autor(claims["sub"]),
         }
 
     @app.post("/chat/webhook/stripe")
@@ -228,6 +234,13 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
                     )
                     continue
                 erros_seguidos = 0
+                if hub.sala_lotada(sala_ok):
+                    await _erro(
+                        ws,
+                        "lotado",
+                        "a sala está muito movimentada; tente de novo em alguns segundos",
+                    )
+                    continue
                 await hub.publicar_msg(sub, apelido, texto, sala_ok)
         except WebSocketDisconnect:
             pass

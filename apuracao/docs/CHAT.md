@@ -57,6 +57,13 @@ Mensagens **servidor → cliente** (JSON, uma por frame):
 ```
 Os itens de `historico` também trazem `eu` (true nas mensagens do próprio usuário).
 
+**Entrega em lotes (escala)**: fora do `historico`, mensagens e avisos de sistema chegam
+agrupados a cada ~300 ms em `{ "tipo": "lote", "itens": [ …msg | sistema… ] }`, um frame por
+pessoa serializado uma vez. Cada `msg` traz `"autor": "<10 hex>"` (código estável do usuário,
+não revela o id); `/chat/acesso` e `/chat/eu` devolvem o `autor` do próprio usuário, e o
+cliente marca como "minha" a mensagem cujo `autor` é igual ao seu. Teto por sala: 15
+mensagens/s; acima disso o remetente recebe `{ "tipo": "erro", "codigo": "lotado" }`.
+
 Mensagens **cliente → servidor**:
 ```json
 { "tipo": "msg", "texto": "Vai virar!" }

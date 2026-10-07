@@ -6,7 +6,14 @@ from fastapi.testclient import TestClient
 from chat import Config
 from chat.app import WS_NAO_AUTORIZADO, criar_app
 from chat.auth import ApelidoInvalido, emitir_token, normalizar_apelido, verificar_token
-from chat.hub import frase_placar
+from chat.auth import verificar_token as _vt
+from chat.hub import codigo_autor, frase_placar
+
+
+def codigo_autor_de(token):
+    return codigo_autor(_vt("segredo-de-teste-com-mais-de-32-caracteres!", token)["sub"])
+
+
 from chat.moderacao import LimiteTaxa, TextoInvalido, bloqueado, carregar_bloqueio, higienizar
 
 
@@ -28,6 +35,21 @@ def cfg(tmp_path):
 def cliente(cfg):
     with TestClient(criar_app(cfg)) as c:
         yield c
+
+
+def proximo(ws, tipo):
+    """Lê frames até achar ``tipo``; itens de ``lote`` contam como frames individuais."""
+    fila = []
+    while True:
+        if fila:
+            d = fila.pop(0)
+        else:
+            d = json.loads(ws.receive_text())
+            if d["tipo"] == "lote":
+                fila.extend(d["itens"])
+                continue
+        if d["tipo"] == tipo:
+            return d
 
 
 def comprar(cliente, apelido="Maria"):
@@ -87,26 +109,23 @@ def test_ws_fluxo_completo(cliente):
         json.loads(b.receive_text())
 
         a.send_text(json.dumps({"tipo": "msg", "texto": "  Vai virar!  veja www.spam.com agora "}))
-        ma = json.loads(a.receive_text())
-        mb = json.loads(b.receive_text())
-        assert ma["tipo"] == "msg" and ma["eu"] is True and mb["eu"] is False
-        assert (
-            ma["texto"] == "Vai virar! veja agora" and ma["apelido"] == "Maria" and "sub" not in ma
-        )
+        ma = proximo(a, "msg")
+        mb = proximo(b, "msg")
+        assert ma["autor"] == mb["autor"] == codigo_autor_de(t1) and "sub" not in ma
+        assert ma["texto"] == "Vai virar! veja agora" and ma["apelido"] == "Maria"
         assert ma["id"] == mb["id"]
 
         a.send_text(json.dumps({"tipo": "msg", "texto": "ganhe no pix premiado"}))
-        err = json.loads(a.receive_text())
-        assert err["tipo"] == "erro" and err["codigo"] == "bloqueado"
+        assert proximo(a, "erro")["codigo"] == "bloqueado"
 
         a.send_text(json.dumps({"tipo": "msg", "texto": "Vai virar! veja agora"}))  # repetida
-        assert json.loads(a.receive_text())["codigo"] == "repetida"
+        assert proximo(a, "erro")["codigo"] == "repetida"
 
         a.send_text(json.dumps({"tipo": "msg", "texto": "x" * 300}))
-        assert json.loads(a.receive_text())["codigo"] == "texto_invalido"
+        assert proximo(a, "erro")["codigo"] == "texto_invalido"
 
         a.send_text(json.dumps({"tipo": "ping"}))
-        assert json.loads(a.receive_text())["tipo"] == "pong"
+        assert proximo(a, "pong")["tipo"] == "pong"
 
     # histórico persiste (sqlite) e reaparece para quem entra depois
     t3, _ = comprar(cliente, "Ana")
@@ -180,11 +199,7 @@ def test_salas_reacoes_termometro(cliente):
 
     cliente.app.state.hub.cands = {"c1", "c2"}
 
-    def ate(ws, tipo):
-        while True:
-            d = json.loads(ws.receive_text())
-            if d["tipo"] == tipo:
-                return d
+    ate = proximo
 
     t1, _ = comprar(cliente, "Maria")
     t2, _ = comprar(cliente, "João")
@@ -207,7 +222,7 @@ def test_salas_reacoes_termometro(cliente):
 
         sp.send_text(json.dumps({"tipo": "msg", "texto": "só em SP"}))
         m = ate(sp, "msg")
-        assert m["sala"] == "SP" and m["eu"] is True
+        assert m["sala"] == "SP" and m["autor"] == codigo_autor_de(t1)
         # reações: 3 fogos + 2 torcidas; a 6ª reação no mesmo segundo é ignorada
         for v in ["🔥", "🔥", "🔥", "torcida:c1", "torcida:c1", "torcida:c2", "lixo"]:
             sp.send_text(json.dumps({"tipo": "reacao", "valor": v}))
@@ -215,6 +230,8 @@ def test_salas_reacoes_termometro(cliente):
         fim = _time.monotonic() + 8
         while _time.monotonic() < fim and not ({"reacoes", "termometro"} <= set(vistos)):
             d = json.loads(sp.receive_text())
+            if d["tipo"] == "lote":
+                continue
             if d["tipo"] in ("reacoes", "termometro") and d["tipo"] not in vistos:
                 if d["tipo"] == "termometro" and d["total"] == 0:
                     continue
@@ -235,8 +252,7 @@ def test_previa_publica(cliente):
     with cliente.websocket_connect(f"/chat/ws?token={t1}&sala=RJ") as ws:
         json.loads(ws.receive_text())
         ws.send_text(json.dumps({"tipo": "msg", "texto": "prévia do Rio"}))
-        while json.loads(ws.receive_text())["tipo"] != "msg":
-            pass
+        proximo(ws, "msg")
     r = cliente.get("/chat/previa", params={"sala": "RJ"})
     assert r.status_code == 200 and r.headers["cache-control"] == "public, max-age=5"
     assert [m["texto"] for m in r.json()["mensagens"]] == ["prévia do Rio"]

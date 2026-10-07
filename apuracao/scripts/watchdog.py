@@ -19,7 +19,9 @@ from datetime import UTC, datetime
 
 
 def get_json(url: str) -> dict:
-    req = urllib.request.Request(url, headers={"Cache-Control": "no-cache", "User-Agent": "apuracao-watchdog"})
+    req = urllib.request.Request(
+        url, headers={"Cache-Control": "no-cache", "User-Agent": "apuracao-watchdog"}
+    )
     with urllib.request.urlopen(req, timeout=15) as r:
         return json.load(r)
 
@@ -56,7 +58,9 @@ def main() -> int:
     if st.get("erros_ciclo", 0) > 5:
         problemas.append(f"{st['erros_ciclo']} erros no último ciclo")
     if problemas:
-        notificar(a.webhook, "🚨 apuração: " + "; ".join(problemas) + f" — eleição {st.get('eleicao')}")
+        notificar(
+            a.webhook, "🚨 apuração: " + "; ".join(problemas) + f" — eleição {st.get('eleicao')}"
+        )
         return 2
     print(
         f"ok: coleta há {int(idade)} s, idg={st.get('fonte_idg')}, "

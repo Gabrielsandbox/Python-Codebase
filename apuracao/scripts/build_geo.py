@@ -149,8 +149,9 @@ def title_case(name: str) -> str:
 # --------------------------------------------------------------------------- download
 def download(url: str, dest: Path) -> None:
     print(f"  baixando {url}\n        -> {dest}")
-    req = urllib.request.Request(url, headers={"User-Agent": "apuracao-build-geo/1.0",
-                                               "Accept-Encoding": "gzip, identity"})
+    req = urllib.request.Request(
+        url, headers={"User-Agent": "apuracao-build-geo/1.0", "Accept-Encoding": "gzip, identity"}
+    )
     with urllib.request.urlopen(req, timeout=300) as resp:
         data = resp.read()
         enc = (resp.headers.get("Content-Encoding") or "").lower()
@@ -298,11 +299,15 @@ def verify_topology(path: Path, name: str, expected: int, props: tuple[str, ...]
             degenerate.append(g["properties"]["id"])
     if degenerate:
         raise SystemExit(f"{path}: geometrias com área zero: {degenerate}")
-    print(f"  ok {path.name}: {len(geoms)} geometrias, {len(topo['arcs'])} arcos, "
-          f"{sum(len(a) for a in topo['arcs']):,} pontos, {path.stat().st_size:,} bytes")
+    print(
+        f"  ok {path.name}: {len(geoms)} geometrias, {len(topo['arcs'])} arcos, "
+        f"{sum(len(a) for a in topo['arcs']):,} pontos, {path.stat().st_size:,} bytes"
+    )
 
 
-def verify_with_node(node: Node, topo_path: Path, name: str, out_geojson: Path, expected: int) -> None:
+def verify_with_node(
+    node: Node, topo_path: Path, name: str, out_geojson: Path, expected: int
+) -> None:
     """Round-trip com topojson-client (topo2geo) para garantir que o arquivo é legível."""
     node.run("topo2geo", "-i", str(topo_path), f"{name}={out_geojson}")
     with out_geojson.open("rb") as fh:
@@ -316,12 +321,20 @@ def verify_with_node(node: Node, topo_path: Path, name: str, out_geojson: Path, 
 def write_json(path: Path, obj, *, one_per_line: bool = False, indent: int | None = None) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     if one_per_line:
-        lines = [json.dumps(k, ensure_ascii=False) + ":" + json.dumps(v, ensure_ascii=False, separators=(",", ":"))
-                 for k, v in obj.items()]
+        lines = [
+            json.dumps(k, ensure_ascii=False)
+            + ":"
+            + json.dumps(v, ensure_ascii=False, separators=(",", ":"))
+            for k, v in obj.items()
+        ]
         text = "{\n" + ",\n".join(lines) + "\n}\n"
     else:
-        text = json.dumps(obj, ensure_ascii=False, indent=indent,
-                          separators=(",", ":") if indent is None else None)
+        text = json.dumps(
+            obj,
+            ensure_ascii=False,
+            indent=indent,
+            separators=(",", ":") if indent is None else None,
+        )
         if indent is not None:
             text += "\n"
     path.write_text(text, encoding="utf-8")
@@ -330,21 +343,39 @@ def write_json(path: Path, obj, *, one_per_line: bool = False, indent: int | Non
 # --------------------------------------------------------------------------- main
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("--cache-dir", type=Path, default=PROJECT / "data" / "raw" / "geo",
-                    help="diretório para as malhas baixadas do IBGE (dados não confiáveis)")
-    ap.add_argument("--tse", type=Path, default=PROJECT / "data" / "ref" / "tse-municipios-2026.json")
+    ap.add_argument(
+        "--cache-dir",
+        type=Path,
+        default=PROJECT / "data" / "raw" / "geo",
+        help="diretório para as malhas baixadas do IBGE (dados não confiáveis)",
+    )
+    ap.add_argument(
+        "--tse", type=Path, default=PROJECT / "data" / "ref" / "tse-municipios-2026.json"
+    )
     ap.add_argument("--out-geo", type=Path, default=PROJECT / "web" / "public" / "geo")
     ap.add_argument("--out-ref", type=Path, default=PROJECT / "data" / "ref")
     ap.add_argument("--web-ref", type=Path, default=PROJECT / "web" / "public" / "ref")
-    ap.add_argument("--simplify", type=float, default=2e-6,
-                    help="área mínima (esférica, em steradianos) do Visvalingam para municípios")
-    ap.add_argument("--min-ratio", type=float, default=0.6,
-                    help="restaura arcos originais de municípios cuja área cair abaixo desta fração")
+    ap.add_argument(
+        "--simplify",
+        type=float,
+        default=2e-6,
+        help="área mínima (esférica, em steradianos) do Visvalingam para municípios",
+    )
+    ap.add_argument(
+        "--min-ratio",
+        type=float,
+        default=0.6,
+        help="restaura arcos originais de municípios cuja área cair abaixo desta fração",
+    )
     ap.add_argument("--quantize", type=float, default=3e4, help="quantização da malha municipal")
     ap.add_argument("--uf-quantize", type=float, default=1e5, help="quantização da malha de UF")
-    ap.add_argument("--node-bin", type=Path, default=None,
-                    help="diretório node_modules/.bin com geo2topo/toposimplify/topoquantize/topo2geo "
-                         "(padrão: npx com versões fixas)")
+    ap.add_argument(
+        "--node-bin",
+        type=Path,
+        default=None,
+        help="diretório node_modules/.bin com geo2topo/toposimplify/topoquantize/topo2geo "
+        "(padrão: npx com versões fixas)",
+    )
     ap.add_argument("--force-download", action="store_true")
     args = ap.parse_args()
 
@@ -368,8 +399,12 @@ def main() -> int:
                 raise SystemExit(f"município sem código IBGE fora do exterior: {sigla} {m}")
             if key in mun_ref:
                 raise SystemExit(f"código IBGE duplicado na tabela TSE: {key}")
-            mun_ref[key] = {"tse": m["cd"], "uf": sigla, "nome": title_case(m["nm"]),
-                            "capital": m.get("c") == "s"}
+            mun_ref[key] = {
+                "tse": m["cd"],
+                "uf": sigla,
+                "nome": title_case(m["nm"]),
+                "capital": m.get("c") == "s",
+            }
     n_zz = sum(1 for v in mun_ref.values() if v["uf"] == "ZZ")
     print(f"  {len(mun_ref)} municípios na tabela TSE ({len(mun_ref) - n_zz} + {n_zz} exterior)")
     missing_uf = (set(UFS) | {"ZZ"}) ^ tse_ufs
@@ -389,8 +424,13 @@ def main() -> int:
         sigla = IBGE_TO_UF.get(code)
         if not sigla:
             raise SystemExit(f"UF desconhecida na malha: {code}")
-        feats.append({"type": "Feature", "properties": {"id": code, "nome": UFS[sigla][0]},
-                      "geometry": f["geometry"]})
+        feats.append(
+            {
+                "type": "Feature",
+                "properties": {"id": code, "nome": UFS[sigla][0]},
+                "geometry": f["geometry"],
+            }
+        )
     if len(feats) != 27 or len({f["properties"]["id"] for f in feats}) != 27:
         raise SystemExit(f"malha de UF com {len(feats)} features (esperado 27)")
     uf_clean = build / "uf_clean.geojson"
@@ -416,8 +456,13 @@ def main() -> int:
             nome, uf = None, IBGE_TO_UF.get(code[:2])
         else:
             nome, uf = ref["nome"], ref["uf"]
-        feats.append({"type": "Feature", "properties": {"id": code, "nome": nome, "uf": uf},
-                      "geometry": f["geometry"]})
+        feats.append(
+            {
+                "type": "Feature",
+                "properties": {"id": code, "nome": nome, "uf": uf},
+                "geometry": f["geometry"],
+            }
+        )
     not_in_mesh = sorted(k for k, v in mun_ref.items() if v["uf"] != "ZZ" and k not in mesh_codes)
     n_mun = len(feats)
     if n_mun != 5570 or len(mesh_codes) != n_mun:
@@ -434,9 +479,11 @@ def main() -> int:
     with simp_path.open("rb") as fh:
         simp = json.load(fh)
     n_g, n_a = protect_small(raw, simp, "mun", args.min_ratio)
-    print(f"  simplificação -s {args.simplify:g}: {sum(len(a) for a in raw['arcs']):,} -> "
-          f"{sum(len(a) for a in simp['arcs']):,} pontos; {n_g} municípios pequenos "
-          f"restaurados ({n_a} arcos)")
+    print(
+        f"  simplificação -s {args.simplify:g}: {sum(len(a) for a in raw['arcs']):,} -> "
+        f"{sum(len(a) for a in simp['arcs']):,} pontos; {n_g} municípios pequenos "
+        f"restaurados ({n_a} arcos)"
+    )
     prot_path = build / "mun_prot.topo.json"
     write_json(prot_path, simp)
     out_mun = args.out_geo / "br-mun.topo.json"
@@ -446,8 +493,10 @@ def main() -> int:
 
     # ---- referências
     print("Referências")
-    ufs_out = {sigla: {"nome": nome, "ibge": ibge, "regiao": regiao}
-               for sigla, (nome, ibge, regiao) in sorted(UFS.items())}
+    ufs_out = {
+        sigla: {"nome": nome, "ibge": ibge, "regiao": regiao}
+        for sigla, (nome, ibge, regiao) in sorted(UFS.items())
+    }
     ufs_out["ZZ"] = {"nome": "Exterior", "ibge": None, "regiao": None}
     mun_out = dict(sorted(mun_ref.items()))
     write_json(args.out_ref / "municipios.json", mun_out, one_per_line=True)
@@ -458,14 +507,22 @@ def main() -> int:
 
     # ---- relatório
     print("\nArquivos gerados:")
-    for p in (out_uf, out_mun, args.out_ref / "municipios.json", args.out_ref / "ufs.json",
-              args.web_ref / "municipios.json", args.web_ref / "ufs.json"):
+    for p in (
+        out_uf,
+        out_mun,
+        args.out_ref / "municipios.json",
+        args.out_ref / "ufs.json",
+        args.web_ref / "municipios.json",
+        args.web_ref / "ufs.json",
+    ):
         shown = p.relative_to(PROJECT) if p.resolve().is_relative_to(PROJECT) else p
         print(f"  {p.stat().st_size:>10,}  {shown}")
     print("\nDivergências malha IBGE x tabela TSE:")
     print(f"  na malha mas não no TSE ({len(not_in_tse)}): {not_in_tse or '-'}")
-    print(f"  no TSE mas não na malha ({len(not_in_mesh)}): "
-          f"{[(k, mun_ref[k]['uf'], mun_ref[k]['nome']) for k in not_in_mesh] or '-'}")
+    print(
+        f"  no TSE mas não na malha ({len(not_in_mesh)}): "
+        f"{[(k, mun_ref[k]['uf'], mun_ref[k]['nome']) for k in not_in_mesh] or '-'}"
+    )
     return 0
 
 

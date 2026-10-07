@@ -24,16 +24,22 @@ export interface Acesso {
   token: string;
   apelido: string;
   expira_em: string;
+  autor?: string;
 }
 
 export interface MsgChat {
   tipo: 'msg';
   id: string;
+  autor?: string;
   apelido: string;
   texto: string;
   t: string;
   eu: boolean;
   sala?: string;
+}
+export interface MsgLote {
+  tipo: 'lote';
+  itens: Array<(MsgChat | MsgSistema) & { autor?: string; eu?: boolean }>;
 }
 export interface MsgSistema {
   tipo: 'sistema';
@@ -68,7 +74,7 @@ export interface MsgTermometro {
 export interface MsgPong {
   tipo: 'pong';
 }
-export type MsgServidor = MsgChat | MsgSistema | MsgHistorico | MsgPresenca | MsgErro | MsgReacoes | MsgTermometro | MsgPong;
+export type MsgServidor = MsgChat | MsgSistema | MsgHistorico | MsgPresenca | MsgErro | MsgReacoes | MsgTermometro | MsgPong | MsgLote;
 
 export const REACOES_EMOJI = ['🔥', '👏', '😱', '😂', '🇧🇷'] as const;
 export const MAX_REACOES_S = 5;
@@ -126,6 +132,7 @@ export const previa = (sala = 'geral'): Promise<Previa> => chamar<Previa>(`/prev
 export interface Sessao {
   token: string;
   apelido: string;
+  autor?: string;
 }
 
 export function lerSessao(): Sessao | null {
@@ -143,9 +150,11 @@ export function guardarSessao(s: Sessao | null): void {
     if (!s) {
       localStorage.removeItem(CHAVE_TOKEN);
       localStorage.removeItem(CHAVE_APELIDO);
+      localStorage.removeItem('chat_autor');
     } else {
       localStorage.setItem(CHAVE_TOKEN, s.token);
       localStorage.setItem(CHAVE_APELIDO, s.apelido);
+      if (s.autor) localStorage.setItem('chat_autor', s.autor);
     }
   } catch {
     /* armazenamento indisponível (modo privado etc.) */

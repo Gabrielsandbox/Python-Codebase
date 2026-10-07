@@ -189,6 +189,17 @@ export function montarSala(opts: SalaOpts): Sala {
 
   const aoMensagem = (m: MsgServidor) => {
     switch (m.tipo) {
+      case 'lote': {
+        // Servidor agrupa mensagens a cada ~300 ms (um frame por pessoa, serializado uma vez).
+        // "eu" vem pelo código de autor, comparado com o meu (chat_autor).
+        const meu = localStorage.getItem('chat_autor');
+        for (const it of m.itens ?? []) {
+          if (!it || typeof it !== 'object') continue;
+          const eu = typeof it.eu === 'boolean' ? it.eu : !!(meu && it.autor === meu);
+          aoMensagem({ ...it, eu } as MsgServidor);
+        }
+        break;
+      }
       case 'historico': {
         const novas = (m.mensagens ?? []).filter((x) => x && x.tipo === 'msg' && typeof x.id === 'string' && lembrarId(x.id));
         if (novas.length) {

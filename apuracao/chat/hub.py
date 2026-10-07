@@ -1,4 +1,12 @@
-"""Hub de conexões: salas, broadcast, histórico, presença, reações, termômetro e placar.
+"""Hub de conexões: salas, broadcast em lotes, histórico, presença, reações, termômetro e placar.
+
+Escala: o custo de um chat é ``pessoas na sala × mensagens por segundo``. Para que ele não
+exploda numa sala de 10 mil pessoas, as mensagens são **agrupadas**: a cada ``LOTE_MS`` cada
+sala recebe um único frame ``{"tipo":"lote","itens":[...]}``, serializado **uma vez** e enviado a
+todas as conexões da sala. "É minha" é resolvido no cliente pelo código ``autor`` (hash curto
+do usuário), devolvido em ``/chat/acesso``. Custo por pessoa: ~3 frames/s, seja qual for o
+volume de mensagens. Além disso cada sala tem um teto de mensagens/s (``TETO_SALA_MSGS``):
+acima dele a sala entra em "modo lento" e o excesso recebe erro ``lotado``.
 
 Em memória por padrão (1 processo). Com ``redis_url``:
 - ``PUBLISH chat:sala`` leva cada mensagem a todos os processos (campo ``sala`` filtra);
@@ -12,6 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hashlib
 import logging
 import secrets
 import time
@@ -39,6 +48,8 @@ SALAS = {"geral", *UFS}
 EMOJIS = {"🔥", "👏", "😱", "😂", "🇧🇷"}
 JANELA_REACOES_S = 2
 JANELA_TORCIDA_MIN = 5
+LOTE_MS = 300  # intervalo de entrega dos lotes por sala
+TETO_SALA_MSGS = 15  # mensagens/s por sala; acima disso → "lotado" (modo lento)
 
 
 def sala_valida(s: str | None) -> str | None:
@@ -51,6 +62,11 @@ def reacao_valida(valor: str, cands: set[str]) -> bool:
     if valor in EMOJIS:
         return True
     return valor.startswith("torcida:") and valor[8:] in cands
+
+
+def codigo_autor(sub: str) -> str:
+    """Código público e estável do usuário (não revela o ``sub``)."""
+    return hashlib.sha256(sub.encode()).hexdigest()[:10]
 
 
 def agora_iso() -> str:
@@ -70,20 +86,27 @@ class Hub:
         redis_url: str | None = None,
         dados_base: str | None = None,
         db=None,
+        lote_ms: int = LOTE_MS,
+        teto_sala: int = TETO_SALA_MSGS,
     ) -> None:
         self.historico_n = historico
         self.redis_url = redis_url
         self.dados_base = dados_base
         self.db = db
+        self.lote_ms = lote_ms
+        self.teto_sala = teto_sala
         self._conexoes: dict[WebSocket, dict] = {}
+        self._por_sala: dict[str, set[WebSocket]] = defaultdict(set)
         self._hist: dict[str, deque[dict]] = defaultdict(lambda: deque(maxlen=historico))
+        self._pendentes: dict[str, list[dict]] = defaultdict(list)  # sala → lote em formação
+        self._pendentes_todas: list[dict] = []  # sistema sem sala → todas
+        self._taxa_sala: dict[str, deque[float]] = defaultdict(deque)  # instantes das msgs
         self._redis = None
         self._proc = secrets.token_hex(4)
         self._tasks: list[asyncio.Task] = []
         self._presenca_cache: tuple[float, dict[str, int]] = (0.0, {})
         self._ultimo_idg: str | None = None
         self.cands: set[str] = set()  # ids válidos para "torcida:<id>" (de meta.json)
-        # reações locais (sem redis): sala → valor → n ; torcida: (sala, cand, minuto) → n
         self._reacoes: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
         self._torcida: dict[tuple[str, str, int], int] = defaultdict(int)
 
@@ -100,6 +123,7 @@ class Hub:
             for sala in SALAS:
                 for m in self.db.ultimas(self.historico_n, sala=sala):
                     self._hist[sala].append({"tipo": "msg", **m})
+        self._tasks.append(asyncio.create_task(self._loop_lotes()))
         self._tasks.append(asyncio.create_task(self._loop_presenca()))
         self._tasks.append(asyncio.create_task(self._loop_reacoes()))
         self._tasks.append(asyncio.create_task(self._loop_termometro()))
@@ -119,10 +143,11 @@ class Hub:
 
     # ------------------------------------------------------------------ conexões
     async def entrar(self, ws: WebSocket, claims: dict, sala: str = "geral") -> None:
-        # Envia histórico antes de registrar a conexão, para o loop de presença não
-        # entregar um frame antes do "historico".
+        # Envia histórico antes de registrar a conexão, para os loops não entregarem
+        # um frame antes do "historico".
         historico = await self.ultimas(sala, claims.get("sub"))
         self._conexoes[ws] = {**claims, "sala": sala}
+        self._por_sala[sala].add(ws)
         await self._atualizar_presenca()
         await ws.send_text(
             orjson.dumps({"tipo": "historico", "sala": sala, "mensagens": historico}).decode()
@@ -134,15 +159,16 @@ class Hub:
         )
 
     def sair(self, ws: WebSocket) -> None:
-        if self._conexoes.pop(ws, None) is not None and self._redis is not None:
+        c = self._conexoes.pop(ws, None)
+        if c is None:
+            return
+        self._por_sala[c.get("sala", "geral")].discard(ws)
+        if self._redis is not None:
             with contextlib.suppress(RuntimeError):
                 asyncio.get_running_loop().create_task(self._atualizar_presenca())
 
     def _locais(self) -> dict[str, int]:
-        out: dict[str, int] = defaultdict(int)
-        for c in self._conexoes.values():
-            out[c.get("sala", "geral")] += 1
-        return dict(out)
+        return {s: len(ws) for s, ws in self._por_sala.items() if ws}
 
     async def _atualizar_presenca(self) -> None:
         if self._redis is not None:
@@ -155,11 +181,24 @@ class Hub:
         return len(self._conexoes)
 
     # ------------------------------------------------------------------ mensagens
+    def sala_lotada(self, sala: str) -> bool:
+        """Teto de mensagens/s por sala (modo lento). Conta só o que este processo vê;
+        com vários processos o teto efetivo é ``teto × processos``, suficiente na prática."""
+        agora = time.monotonic()
+        fila = self._taxa_sala[sala]
+        while fila and agora - fila[0] > 1.0:
+            fila.popleft()
+        if len(fila) >= self.teto_sala:
+            return True
+        fila.append(agora)
+        return False
+
     async def publicar_msg(self, sub: str, apelido: str, texto: str, sala: str = "geral") -> dict:
         msg = {
             "tipo": "msg",
             "id": novo_id(),
             "sub": sub,
+            "autor": codigo_autor(sub),
             "apelido": apelido,
             "texto": texto,
             "sala": sala,
@@ -186,29 +225,40 @@ class Hub:
                 pipe.ltrim(HIST + msg["sala"], 0, self.historico_n - 1)
             await pipe.execute()
         else:
-            await self._entregar(msg)
+            self._enfileirar(msg)
 
-    async def _entregar(self, msg: dict) -> None:
-        sala = msg.get("sala")  # None = todas as salas
+    def _enfileirar(self, msg: dict) -> None:
+        """Guarda no histórico e no lote da sala; a entrega acontece no ``_loop_lotes``."""
+        sala = msg.get("sala")
         if msg["tipo"] == "msg" and sala:
             self._hist[sala].append(msg)
-        sub = msg.get("sub")
         publico = {k: v for k, v in msg.items() if k != "sub"}
-        if msg["tipo"] == "msg":
-            raw_outros = orjson.dumps({**publico, "eu": False}).decode()
-            raw_eu = orjson.dumps({**publico, "eu": True}).decode()
+        if sala:
+            self._pendentes[sala].append(publico)
         else:
-            raw_outros = raw_eu = orjson.dumps(publico).decode()
-        mortas: list[WebSocket] = []
-        for ws, claims in list(self._conexoes.items()):
-            if sala and claims.get("sala") != sala:
-                continue
+            self._pendentes_todas.append(publico)
+
+    async def _loop_lotes(self) -> None:
+        """A cada ``lote_ms`` serializa um frame por sala e envia a todas as conexões dela."""
+        while True:
+            await asyncio.sleep(self.lote_ms / 1000)
             try:
-                await ws.send_text(raw_eu if sub and claims.get("sub") == sub else raw_outros)
-            except Exception:  # noqa: BLE001 — conexão fechada
-                mortas.append(ws)
-        for ws in mortas:
-            self.sair(ws)
+                todas = self._pendentes_todas
+                self._pendentes_todas = []
+                salas = set(self._pendentes) | (set(self._por_sala) if todas else set())
+                for sala in salas:
+                    itens = self._pendentes.pop(sala, [])
+                    if todas:
+                        itens = todas + itens
+                    if not itens:
+                        continue
+                    await self._enviar_sala(sala, {"tipo": "lote", "itens": itens})
+            except Exception:
+                log.exception("lotes")
+
+    async def _entregar(self, msg: dict) -> None:
+        """Compatibilidade: enfileira (a entrega é em lote)."""
+        self._enfileirar(msg)
 
     async def ultimas(self, sala: str = "geral", sub: str | None = None) -> list[dict]:
         if self._redis is not None:
@@ -248,18 +298,27 @@ class Hub:
             try:
                 await self._atualizar_presenca()
                 s = await self.salas()
-                por_sala = {
-                    sala: orjson.dumps({"tipo": "presenca", "sala": sala, "online": n}).decode()
-                    for sala, n in s.items()
-                }
-                for ws, claims in list(self._conexoes.items()):
-                    raw = por_sala.get(claims.get("sala", "geral"))
-                    if raw:
-                        with contextlib.suppress(Exception):
-                            await ws.send_text(raw)
+                for sala, n in s.items():
+                    if self._por_sala.get(sala):
+                        await self._enviar_sala(
+                            sala, {"tipo": "presenca", "sala": sala, "online": n}
+                        )
             except Exception:
                 log.exception("presença")
             await asyncio.sleep(5)
+
+    # ------------------------------------------------------------------ envio
+    async def _enviar_sala(self, sala: str, doc: dict) -> None:
+        """Serializa uma vez e envia a todas as conexões da sala (as mortas são removidas)."""
+        raw = orjson.dumps(doc).decode()
+        mortas: list[WebSocket] = []
+        for ws in list(self._por_sala.get(sala, ())):
+            try:
+                await ws.send_text(raw)
+            except Exception:  # noqa: BLE001 — conexão fechada
+                mortas.append(ws)
+        for ws in mortas:
+            self.sair(ws)
 
     # ------------------------------------------------------------------ reações
     async def reagir(self, sala: str, valor: str) -> None:
@@ -278,13 +337,6 @@ class Hub:
             self._reacoes[sala][valor] += 1
             if valor.startswith("torcida:"):
                 self._torcida[(sala, valor[8:], minuto)] += 1
-
-    async def _enviar_sala(self, sala: str, doc: dict) -> None:
-        raw = orjson.dumps(doc).decode()
-        for ws, claims in list(self._conexoes.items()):
-            if claims.get("sala") == sala:
-                with contextlib.suppress(Exception):
-                    await ws.send_text(raw)
 
     async def _loop_reacoes(self) -> None:
         """A cada 2 s entrega a contagem da janela anterior a cada sala com gente."""
@@ -371,7 +423,7 @@ class Hub:
                 msg = orjson.loads(item["data"])
             except orjson.JSONDecodeError:
                 continue
-            await self._entregar(msg)
+            self._enfileirar(msg)
 
     # ------------------------------------------------------------------ placar
     async def _loop_placar(self) -> None:
