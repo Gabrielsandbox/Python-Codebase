@@ -6,7 +6,21 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
-RAIZ = Path(__file__).resolve().parent.parent
+
+def _raiz() -> Path:
+    """Raiz do projeto ``apuracao/`` (onde ficam ``data/ref`` e ``data/latest``).
+
+    Em desenvolvimento é o pai deste pacote. Instalado via pip (imagem Docker), o pacote mora em
+    site-packages e a raiz é ``APURACAO_RAIZ`` (``/app`` na imagem) ou o diretório atual.
+    """
+    env = os.environ.get("APURACAO_RAIZ")
+    if env:
+        return Path(env)
+    local = Path(__file__).resolve().parent.parent
+    return local if (local / "data" / "ref").is_dir() else Path.cwd()
+
+
+RAIZ = _raiz()
 
 EVENTOS = ["inicio", "marcos", "virada", "definido", "matematica"]
 
