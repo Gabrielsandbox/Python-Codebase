@@ -4,7 +4,7 @@ import json
 
 from alertas.eventos import EstadoAlertas, detectar
 from apuracao.publish.caminho import Base, calcular_caminho, construir_base
-from apuracao.publish.og import desenhar_placar
+from apuracao.publish.og import desenhar_aguardando, desenhar_placar
 from apuracao.publish.ritmo import calcular_ritmo
 from apuracao.tse.eleicoes import Municipio
 from apuracao.tse.parse import Candidato, Resultado
@@ -203,3 +203,13 @@ def test_eventos_alertas():
     )
     assert [e.tipo for e in evs] == ["marcos", "marcos", "marcos", "marcos", "definido"]
     assert json.dumps([e.chave for e in evs]).count("marcos-") == 4
+
+
+def test_og_aguardando_png():
+    png = desenhar_aguardando(data_eleicao="2026-10-25", turno=2, site="apuracaoaovivo.com")
+    assert png[:8] == b"\x89PNG\r\n\x1a\n"
+    import io
+
+    from PIL import Image
+
+    assert Image.open(io.BytesIO(png)).size == (1200, 630)

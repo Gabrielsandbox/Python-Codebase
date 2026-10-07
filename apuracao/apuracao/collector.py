@@ -20,7 +20,7 @@ import orjson
 
 from . import publish
 from .publish.caminho import Base, calcular_caminho
-from .publish.og import desenhar_placar
+from .publish.og import desenhar_aguardando, desenhar_placar
 from .publish.ritmo import calcular_ritmo
 from .storage import Storage
 from .tse import urls
@@ -381,6 +381,24 @@ class Collector:
                 log.exception("imagem og nacional")
             self._ultimo_uf_og = uf
 
+    def _publicar_og_aguardando(self) -> None:
+        """Antes de existir resultado, publica uma imagem OG "aguardando" no caminho estável,
+        para o link do site já ter prévia no WhatsApp. Sobrescrita pelo placar real depois."""
+        est = self.estado
+        if not self.cfg.gerar_og or est is None or est.br is not None:
+            return
+        try:
+            png = desenhar_aguardando(
+                data_eleicao=str(getattr(est.eleicao, "data", "") or ""),
+                turno=self.cfg.turno,
+                site=self.cfg.site_url,
+                simulacao=self.cfg.simulacao,
+            )
+            self.storage.write_bytes("og/placar.png", png, content_type="image/png", max_age=300)
+            log.info("imagem og 'aguardando' publicada")
+        except Exception:
+            log.exception("imagem og aguardando")
+
     def _publicar_og_ufs(self) -> None:
         """Imagens por UF: mais caras (28 PNGs), geradas no ritmo do ciclo municipal."""
         est = self.estado
@@ -437,6 +455,7 @@ class Collector:
     async def uma_vez(self) -> None:
         async with self.client:
             await self.preparar()
+            self._publicar_og_aguardando()
             r1 = await self.ciclo_rapido()
             log.info("camada rápida: %s", r1)
             r2 = await self.ciclo_municipal()
@@ -446,6 +465,7 @@ class Collector:
     async def rodar(self) -> None:
         async with self.client:
             await self.preparar()
+            self._publicar_og_aguardando()
 
             async def loop_rapido() -> None:
                 while not self._stop.is_set():
