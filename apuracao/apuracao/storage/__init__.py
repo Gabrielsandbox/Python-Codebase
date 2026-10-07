@@ -104,6 +104,17 @@ def from_env(default_root: str = "data/latest") -> Storage:
     """``APURACAO_S3_BUCKET`` definido → S3Storage; senão disco local em ``APURACAO_DATA_DIR``."""
     bucket = os.environ.get("APURACAO_S3_BUCKET")
     if bucket:
+        faltam = [
+            v
+            for v in ("APURACAO_S3_ENDPOINT", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY")
+            if not os.environ.get(v)
+        ]
+        if faltam:
+            raise SystemExit(
+                f"APURACAO_S3_BUCKET={bucket} definido, mas faltam as variáveis: "
+                + ", ".join(faltam)
+                + " (token R2 'Object Read & Write' e endpoint https://<account_id>.r2.cloudflarestorage.com)"
+            )
         return S3Storage(
             bucket,
             prefix=os.environ.get("APURACAO_S3_PREFIX", ""),

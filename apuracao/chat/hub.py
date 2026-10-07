@@ -32,6 +32,22 @@ import orjson
 from starlette.websockets import WebSocket
 
 log = logging.getLogger("apuracao.chat.hub")
+
+
+def _sem_senha(url: str) -> str:
+    """Esconde a senha de uma URL (``redis://user:senha@host``) para logs."""
+    from urllib.parse import urlsplit, urlunsplit
+
+    u = urlsplit(url)
+    if not u.password:
+        return url
+    host = u.hostname or ""
+    if u.port:
+        host += f":{u.port}"
+    netloc = f"{u.username}:***@{host}" if u.username else f"***@{host}"
+    return urlunsplit((u.scheme, netloc, u.path, u.query, u.fragment))
+
+
 BRT = timezone(timedelta(hours=-3))
 
 CANAL = "chat:sala"
@@ -118,7 +134,7 @@ class Hub:
             self._redis = aioredis.from_url(self.redis_url, decode_responses=False)
             await self._redis.ping()
             self._tasks.append(asyncio.create_task(self._assinar_redis()))
-            log.info("hub com redis (%s), proc=%s", self.redis_url, self._proc)
+            log.info("hub com redis (%s), proc=%s", _sem_senha(self.redis_url), self._proc)
         elif self.db:
             for sala in SALAS:
                 for m in self.db.ultimas(self.historico_n, sala=sala):
