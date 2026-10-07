@@ -66,7 +66,10 @@ class ProvedorStripe:
     ) -> Checkout:
         s = self._stripe.checkout.Session.create(
             mode="payment",
-            payment_method_types=["card", "pix"],
+            # API 2025+: payment_method_types foi substituído por allowed_payment_method_types
+            # (os métodos precisam estar ativados no painel: Settings → Payment methods → Pix).
+            allowed_payment_method_types=["card", "pix"],
+            locale="pt-BR",
             line_items=[
                 {
                     "price_data": {

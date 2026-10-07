@@ -13,6 +13,10 @@ COPY data/ref ./data/ref
 RUN pip install --no-cache-dir ".[s3,historico,chat,alertas,imagens]"
 
 VOLUME ["/app/data"]
-EXPOSE 8000
-ENTRYPOINT ["apuracao"]
-CMD ["coletar", "--ano", "2026", "--turno", "2"]
+EXPOSE 8000 8001 8002
+# Uma imagem, vários serviços: troque o comando de início por serviço (Railway/Fly/compose):
+#   apuracao coletar --ano 2026 --turno 2     coletor (publica no bucket)
+#   apuracao servir --port 8000               API do acervo / snapshots locais
+#   python -m chat                            chat ao vivo (8001)
+#   python -m alertas                         alertas (8002)
+CMD ["apuracao", "coletar", "--ano", "2026", "--turno", "2"]

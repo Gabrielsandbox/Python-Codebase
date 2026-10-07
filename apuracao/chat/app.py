@@ -156,10 +156,11 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
         except ValueError as exc:
             raise HTTPException(400, f"assinatura inválida: {exc}") from exc
         tipo = ev["type"]
-        obj = ev["data"]["object"]
+        obj = ev["data"]["object"]  # StripeObject: acesso por item, não por .get
         confirmados = ("checkout.session.completed", "checkout.session.async_payment_succeeded")
-        if tipo in confirmados and obj.get("payment_status") == "paid":
-            ref = obj.get("client_reference_id") or (obj.get("metadata") or {}).get("ref")
+        if tipo in confirmados and _campo(obj, "payment_status") == "paid":
+            meta_ = _campo(obj, "metadata") or {}
+            ref = _campo(obj, "client_reference_id") or _campo(meta_, "ref")
             if ref and db.marcar_pago(ref):
                 log.info("pagamento confirmado %s", ref)
         return {"ok": True}
@@ -239,6 +240,14 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
             limite.esquecer(sub)
 
     return app
+
+
+def _campo(obj: Any, chave: str) -> Any:
+    """Lê ``chave`` de um dict ou StripeObject sem depender de ``.get``."""
+    try:
+        return obj[chave]
+    except (KeyError, TypeError, AttributeError):
+        return None
 
 
 async def _erro(ws: WebSocket, codigo: str, texto: str) -> None:
