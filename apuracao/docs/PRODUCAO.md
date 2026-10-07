@@ -14,6 +14,32 @@ Telegram          ──  bot de alertas (webhook → alertas)
 
 Tempo estimado: 1 tarde para o deploy, mais o tempo de aprovação das contas (Stripe e domínio).
 
+## Nossos domínios e DNS
+
+Principal: **apuracaoaovivo.com** (marca que sobrevive à eleição e serve ao acervo).
+Secundário: **apura2026.com** → redireciona para o principal (link curto para compartilhar).
+Os dois precisam estar na Cloudflare como zonas (Websites → Add a site → trocar os nameservers
+no registrador, ou já estão lá se foram comprados no Cloudflare Registrar).
+
+| registro | tipo | destino | quem cria |
+|---|---|---|---|
+| `apuracaoaovivo.com` | — | Cloudflare Pages (custom domain do projeto) | Pages cria |
+| `www.apuracaoaovivo.com` | — | Pages (custom domain) ou Redirect Rule → raiz | Pages/você |
+| `dados.apuracaoaovivo.com` | — | bucket R2 `apuracao-dados` (Custom Domain do bucket) | R2 cria |
+| `ensaio-dados.apuracaoaovivo.com` | — | bucket R2 `apuracao-ensaio` | R2 cria |
+| `chat.apuracaoaovivo.com` | CNAME | domínio do serviço chat no Railway | você |
+| `alertas.apuracaoaovivo.com` | CNAME | domínio do serviço alertas no Railway | você |
+| `api.apuracaoaovivo.com` | CNAME | serviço api (acervo, fase 2) | você |
+| `apura2026.com` e `www` | Redirect Rule | `https://apuracaoaovivo.com/$1` (301, preserva caminho e hash não é preservado pelo servidor; o site lê `#m=`/`#uf=` só no principal) | você |
+
+Observações:
+- Os CNAMEs para o Railway ficam com o proxy da Cloudflare **ligado** (nuvem laranja); o
+  WebSocket do chat passa pelo proxy sem configuração extra.
+- O buckets R2 ganham o domínio em Settings → Custom Domains → Add; a Cloudflare cria o DNS.
+- A `og:image` do site aponta para `https://dados.apuracaoaovivo.com/og/placar.png`, que o
+  coletor regenera a cada mudança (caminho estável, fora do prefixo da eleição).
+- CORS do bucket: `AllowedOrigins: ["https://apuracaoaovivo.com", "https://www.apuracaoaovivo.com"]`.
+
 ## 0. Antes de tudo (contas)
 
 - [ ] **Domínio** registrado e com DNS na Cloudflare (plano grátis basta).
@@ -49,7 +75,7 @@ Variáveis por serviço (todas em `.env.example`):
 2. Bucket → Settings → **Custom domain** → `dados.<dominio>` (isso liga o CDN e o cache).
 3. Bucket → Settings → **CORS policy**:
    ```json
-   [{"AllowedOrigins": ["https://<dominio>"], "AllowedMethods": ["GET", "HEAD"], "AllowedHeaders": ["*"], "MaxAgeSeconds": 3600}]
+   [{"AllowedOrigins": ["https://apuracaoaovivo.com", "https://www.apuracaoaovivo.com"], "AllowedMethods": ["GET", "HEAD"], "AllowedHeaders": ["*"], "ExposeHeaders": ["ETag"], "MaxAgeSeconds": 3600}]
    ```
 4. R2 → Manage API tokens → token **Object Read & Write** restrito ao bucket → anote
    `Access Key ID`, `Secret Access Key` e o endpoint `https://<account_id>.r2.cloudflarestorage.com`.

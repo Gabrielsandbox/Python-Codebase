@@ -369,12 +369,14 @@ class Collector:
         self._publicar_caminho()
         if self.cfg.gerar_og and est.meta_dict:
             try:
-                self.storage.write_bytes(
-                    f"{p}/og/placar.png",
-                    desenhar_placar(est.meta_dict, br, nome_local="Brasil", site=self.cfg.site_url),
-                    content_type="image/png",
-                    max_age=30,
+                png = desenhar_placar(
+                    est.meta_dict, br, nome_local="Brasil", site=self.cfg.site_url
                 )
+                self.storage.write_bytes(
+                    f"{p}/og/placar.png", png, content_type="image/png", max_age=30
+                )
+                # caminho estável (independe do prefixo da eleição) para og:image do site
+                self.storage.write_bytes("og/placar.png", png, content_type="image/png", max_age=30)
             except Exception:
                 log.exception("imagem og nacional")
             self._ultimo_uf_og = uf
