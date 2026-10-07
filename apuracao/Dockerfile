@@ -12,7 +12,8 @@ COPY alertas ./alertas
 COPY data/ref ./data/ref
 RUN pip install --no-cache-dir ".[s3,historico,chat,alertas,imagens]"
 
-VOLUME ["/app/data"]
+# Sem VOLUME: o Railway rejeita Dockerfiles com essa instrução ("Dockerfile failed validation");
+# o volume persistente é anexado pela plataforma em /app/data (chat e alertas).
 EXPOSE 8000 8001 8002
 # Uma imagem, vários serviços: troque o comando de início por serviço (Railway/Fly/compose):
 #   apuracao coletar --ano 2026 --turno 2     coletor (publica no bucket)
