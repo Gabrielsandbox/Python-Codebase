@@ -17,7 +17,8 @@ interface Lado {
 }
 
 export function montarPlacar(raiz: HTMLElement, store: Store): void {
-  const kickerEsq = el('span', { text: 'Brasil' });
+  const kickerSecoes = el('span', { class: 'secoes num' });
+  const kickerEsq = el('span', {}, el('span', { text: 'Brasil' }), kickerSecoes);
   const kickerDir = el('span', { class: 'pct-tot num' });
   const progresso = el('i');
   const contest = el('div', { class: 'contest' });
@@ -125,8 +126,8 @@ export function montarPlacar(raiz: HTMLElement, store: Store): void {
     const br = store.br;
     if (!br || !store.meta) return;
     montarEstrutura();
-    kickerEsq.textContent = `Brasil · ${fmtInt(br.secoes.totalizadas)} de ${fmtInt(br.secoes.total)} seções`;
-    kickerDir.textContent = `${fmtPct(br.secoes.pct, 1)} das seções totalizadas`;
+    kickerSecoes.textContent = ` · ${fmtInt(br.secoes.totalizadas)} de ${fmtInt(br.secoes.total)} seções`;
+    kickerDir.replaceChildren(el('span', { class: 'long', text: `${fmtPct(br.secoes.pct, 1)} das seções totalizadas` }), el('span', { class: 'short', text: `${fmtPct(br.secoes.pct, 1)} das seções` }));
     progresso.style.width = `${br.secoes.pct}%`;
     progresso.parentElement!.setAttribute('aria-valuenow', String(br.secoes.pct));
 

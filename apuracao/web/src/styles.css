@@ -204,37 +204,59 @@ h3 {
   gap: 8px 16px;
 }
 @media (max-width: 640px) {
+  /* celular: uma linha só — marca à esquerda; à direita "há 6 s", selo, tema e sino */
   .topbar-inner {
-    padding: 10px 16px;
-    grid-template-columns: minmax(0, 1fr) auto;
-    grid-template-areas:
-      "titulo badge"
-      "sub upd";
-    row-gap: 2px;
+    padding: 8px 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 52px;
   }
   .brand {
-    display: contents;
+    flex: 1 1 auto;
+    min-width: 0;
   }
   .brand h1 {
-    grid-area: titulo;
     font-size: 17px;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .brand .sub {
-    grid-area: sub;
+    display: none;
   }
-  /* .topbar-inner para vencer o `.status { display: flex }` declarado mais abaixo */
   .topbar-inner .status {
-    display: contents;
+    display: flex;
+    gap: 6px;
+    flex: none;
   }
   .status .badge {
-    grid-area: badge;
-    justify-self: end;
-    padding: 3px 8px 3px 7px;
-    font-size: 11px;
+    padding: 3px 7px 3px 6px;
+    font-size: 10px;
+    letter-spacing: 0.03em;
+    gap: 4px;
+  }
+  .status .badge .dot {
+    width: 6px;
+    height: 6px;
   }
   .status .live-ind {
-    grid-area: upd;
-    justify-self: end;
+    font-size: 11.5px;
+  }
+  .status .live-ind .ring-wrap {
+    display: none;
+  }
+  /* antes do primeiro boletim nada está "ao vivo": o selo "aguardando" já diz tudo e o título cabe inteiro */
+  .topbar-inner:has(.badge.wait) .status .live-ind {
+    display: none;
+  }
+}
+@media (max-width: 400px) {
+  .brand h1 {
+    font-size: 16px;
+  }
+  .topbar-inner {
+    gap: 6px;
+    padding: 8px 10px;
   }
 }
 @media (min-width: 900px) {
@@ -326,26 +348,11 @@ h3 {
   .status .wa-share.compacto {
     display: none;
   }
-  /* o toggle ganha uma coluna própria à direita (a 3ª; com o sino dos alertas, a 4ª) */
-  .topbar-inner:has(.tema-toggle) {
-    grid-template-columns: minmax(0, 1fr) auto auto;
-    grid-template-areas:
-      "titulo badge tema"
-      "sub upd tema";
-    column-gap: 10px;
-  }
-  .topbar-inner:has(.tema-toggle):has(.alertas) {
-    grid-template-columns: minmax(0, 1fr) auto auto auto;
-    grid-template-areas:
-      "titulo badge tema sino"
-      "sub upd tema sino";
-  }
-  .status .tema-toggle {
-    grid-area: tema;
-    align-self: center;
-    width: 32px;
-    height: 32px;
-    min-height: 32px;
+  .status .tema-toggle,
+  .status .al-bell {
+    width: 30px;
+    height: 30px;
+    min-height: 30px;
     padding: 0;
     justify-content: center;
     border-radius: 50%;
@@ -612,6 +619,27 @@ h3 {
 .hero-kicker .pct-tot {
   color: var(--ink);
   font-weight: 700;
+  white-space: nowrap;
+}
+.hero-kicker .short {
+  display: none;
+}
+@media (max-width: 640px) {
+  .hero-kicker {
+    align-items: center;
+    gap: 8px;
+  }
+  .hero-kicker .secoes,
+  .hero-kicker .long {
+    display: none;
+  }
+  .hero-kicker .short {
+    display: inline;
+  }
+  .hero-kicker .fonte-link {
+    font-size: 11px;
+    padding: 2px 7px;
+  }
 }
 .progress {
   height: 4px;
@@ -1486,8 +1514,19 @@ th button:focus-visible {
 /* ------------------------------------------------------------------ totals */
 .tiles {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
+}
+.tiles > * {
+  min-width: 0;
+}
+@media (max-width: 360px) {
+  .tile {
+    padding: 12px 12px;
+  }
+  .tile .v {
+    font-size: 19px;
+  }
 }
 @media (min-width: 720px) {
   .tiles {
@@ -2613,10 +2652,20 @@ html[data-chat-layout="sheet"] .pay-legal {
   padding: 28px;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 12px;
+  gap: 14px;
 }
 .aguardando > * {
   min-width: 0;
+}
+.aguardando .hero-kicker {
+  margin: 0;
+}
+.aguardando h1 {
+  margin: 0 0 6px;
+  font-size: clamp(28px, 5vw, 44px);
+  line-height: 1.08;
+  letter-spacing: -0.015em;
+  max-width: 14ch;
 }
 .aguardando .wa-share {
   justify-content: flex-start;
@@ -2624,49 +2673,12 @@ html[data-chat-layout="sheet"] .pay-legal {
 }
 @media (max-width: 600px) {
   .aguardando {
-    padding: 20px 16px;
+    padding: 22px 18px;
   }
-}
-.aguardando h1 {
-  margin: 0;
-  font-size: clamp(26px, 4vw, 40px);
-  line-height: 1.1;
-  letter-spacing: -0.01em;
-}
-.aguardando-quando {
-  margin: 0;
-  font-size: 18px;
-  font-weight: 600;
-  color: var(--ink-2);
-}
-.aguardando-desc,
-.aguardando-lista {
-  margin: 0;
-  color: var(--muted);
-  max-width: 70ch;
-}
-.aguardando-lista {
-  padding-left: 20px;
-  display: grid;
-  gap: 4px;
-}
-.aguardando-acoes {
-  display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
-  margin-top: 4px;
-}
-.aguardando-ind {
-  margin: 6px 0 0;
-  white-space: normal;
-  line-height: 1.4;
-  cursor: default;
-  align-items: flex-start;
-}
-.aguardando-ind .beat {
-  margin-top: 4px;
-}
-.aguardando-ind .secs {
-  min-width: 0;
-  white-space: normal;
+  .aguardando .wa-share {
+    justify-content: stretch;
+  }
+  .aguardando .btn-wa {
+    width: 100%;
+  }
 }

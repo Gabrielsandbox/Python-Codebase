@@ -1,7 +1,7 @@
 // Paywall do chat: preço, o que inclui, apelido e botão de pagamento.
 
 import { el, fmtInt } from '../format';
-import { apelidoValido, ChatHttpError, checkout, normalizarApelido, type Estado } from './client';
+import { apelidoValido, ChatHttpError, checkout, normalizarApelido, ONLINE_MINIMO, type Estado } from './client';
 
 export type VariantePaywall = 'chat' | 'telao';
 
@@ -142,7 +142,7 @@ export function montarPaywall(opts: { aoCheckout: () => void }): Paywall {
       { class: 'pay-list' },
       item('Chat ao vivo durante toda a apuração'),
       item('Modo telão (TV) para bar, redação e sala de aula'),
-      item('Alertas de virada e marcos'),
+      item('Salas por estado, reações e termômetro da torcida'),
     ),
     form,
     avisoEl,
@@ -183,7 +183,7 @@ export function montarPaywall(opts: { aoCheckout: () => void }): Paywall {
       } else if (!enviando) btn.disabled = false;
       const n = online ?? e?.online ?? null;
       onlineEl.replaceChildren();
-      if (n !== null) {
+      if (n !== null && n >= ONLINE_MINIMO) {
         onlineEl.append(el('i', { class: 'live-dot', 'aria-hidden': 'true' }), el('b', { class: 'num', text: fmtInt(n) }), n === 1 ? ' pessoa conversando agora' : ' pessoas conversando agora');
       }
     },
