@@ -2,16 +2,44 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from datetime import datetime
+from pathlib import Path
 
 from ..tse.eleicoes import Eleicao, Municipio
-from ..tse.parse import BRT, Resultado
+from ..tse.parse import BRT, Candidato, Resultado
 
 SCHEMA = 1
 
-# Paleta neutra (sem conotação partidária), atribuída pela ordem de ``cands``.
-PALETA = ["#1d4ed8", "#ea580c", "#059669", "#7c3aed", "#db2777", "#ca8a04", "#0891b2", "#4b5563"]
+# Paleta neutra de reserva (12 tons distintos) para candidatos sem cor em ``data/ref/cores.json``.
+PALETA = [
+    "#1d4ed8", "#ea580c", "#059669", "#7c3aed", "#db2777", "#ca8a04",
+    "#0891b2", "#4b5563", "#65a30d", "#9f1239", "#0f766e", "#a16207",
+]  # fmt: skip
+CORES_PATH = Path(__file__).resolve().parent.parent.parent / "data" / "ref" / "cores.json"
+
+
+def carregar_cores(path: Path | None = None) -> dict[str, str]:
+    """Mapa sigla de partido → cor (ou ``n:<número>`` → cor) de ``data/ref/cores.json``."""
+    p = path or CORES_PATH
+    if not p.exists():
+        return {}
+    try:
+        d = json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return {k: v for k, v in d.items() if not k.startswith("_") and isinstance(v, str)}
+
+
+def cor_candidato(c: Candidato, i: int, cores: dict[str, str], usadas: set[str]) -> str:
+    """Cor por número de candidato ou partido; sem repetição; reserva pela paleta neutra."""
+    cor = cores.get(f"n:{c.numero}") or cores.get(c.partido.upper())
+    if not cor or cor in usadas:
+        cor = next((x for x in PALETA if x not in usadas), PALETA[i % len(PALETA)])
+    usadas.add(cor)
+    return cor
+
 
 UF_NOMES = {
     "AC": "Acre",
@@ -83,8 +111,16 @@ def ordem_candidatos(res: Resultado) -> list[str]:
     return [c.id for c in sorted(res.candidatos, key=lambda c: (int(c.numero or 0), c.seq))]
 
 
-def build_meta(eleicao: Eleicao, cargo: str, br: Resultado, cands: list[str]) -> dict:
+def build_meta(
+    eleicao: Eleicao,
+    cargo: str,
+    br: Resultado,
+    cands: list[str],
+    cores: dict[str, str] | None = None,
+) -> dict:
     por_id = {c.id: c for c in br.candidatos}
+    cores = carregar_cores() if cores is None else cores
+    usadas: set[str] = set()
     return {
         "schema": SCHEMA,
         "eleicao": eleicao.codigo,
@@ -105,7 +141,7 @@ def build_meta(eleicao: Eleicao, cargo: str, br: Resultado, cands: list[str]) ->
                 "partido": por_id[cid].partido,
                 "coligacao": por_id[cid].coligacao,
                 "vice": por_id[cid].vice,
-                "cor": PALETA[i % len(PALETA)],
+                "cor": cor_candidato(por_id[cid], i, cores, usadas),
                 "foto": None,
             }
             for i, cid in enumerate(cands)
@@ -119,6 +155,7 @@ def _bloco(res: Resultado, cands: list[str]) -> dict:
     v = [por_id[c].votos if c in por_id else 0 for c in cands]
     pct = [por_id[c].pct if c in por_id else 0.0 for c in cands]
     lider = res.lider
+    vencedor = next((c.id for c in res.candidatos if c.eleito), None)
     return {
         "secoes": {
             "total": res.secoes_total,
@@ -148,6 +185,7 @@ def _bloco(res: Resultado, cands: list[str]) -> dict:
         "margem_pct": res.margem_pct,
         "situacao": {c.id: c.situacao for c in res.candidatos},
         "definido": res.definido,
+        "vencedor": vencedor,
     }
 
 
@@ -200,7 +238,7 @@ def build_mun(
         por_id = {c.id: c for c in res.candidatos}
         linhas.append(
             [
-                m.ibge or None,
+                m.ibge or f"99{m.tse}",  # exterior: código sintético, igual a ref/municipios.json
                 m.uf,
                 res.secoes_total,
                 res.secoes_totalizadas,
@@ -231,10 +269,13 @@ class Timeline:
         if res.idg == self.ultimo_idg:
             return False
         self.ultimo_idg = res.idg
+        t = res.gerado_em or agora_iso()
+        if self.pontos and self.pontos[-1]["t"] == t:
+            return False  # mesmo instante de geração (ex.: reinício do coletor)
         por_id = {c.id: c for c in res.candidatos}
         self.pontos.append(
             {
-                "t": res.gerado_em or agora_iso(),
+                "t": t,
                 "secoes_pct": res.secoes_pct,
                 "v": [por_id[c].votos if c in por_id else 0 for c in self.cands],
                 "pct": [por_id[c].pct if c in por_id else 0.0 for c in self.cands],
@@ -243,14 +284,18 @@ class Timeline:
         return True
 
     def to_dict(self) -> dict:
-        return {"schema": SCHEMA, "cands": self.cands, "pontos": self.pontos}
+        return {
+            "schema": SCHEMA,
+            "cands": self.cands,
+            "ultimo_idg": self.ultimo_idg,
+            "pontos": self.pontos,
+        }
 
     @classmethod
     def from_dict(cls, d: dict | None, cands: list[str]) -> Timeline:
         if not d or d.get("cands") != cands:
             return cls(cands)
-        t = cls(cands, list(d.get("pontos") or []))
-        return t
+        return cls(cands, list(d.get("pontos") or []), d.get("ultimo_idg"))
 
 
 def build_status(

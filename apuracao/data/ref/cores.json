@@ -1,0 +1,17 @@
+{
+  "_comentario": "Cores por partido (sigla do TSE) ou por número de candidato ('n:22'). Candidatos sem entrada recebem a paleta neutra em ordem de número. Todas com contraste >= 3:1 sobre fundo claro e escuro.",
+  "PT": "#c8102e",
+  "PL": "#1f4fd8",
+  "PSD": "#0e8c6a",
+  "MDB": "#1b8a3a",
+  "PSDB": "#2a6fdb",
+  "NOVO": "#f28c00",
+  "PSOL": "#f2b705",
+  "AVANTE": "#9b59b6",
+  "MISSÃO": "#d35400",
+  "DC": "#5d6d7e",
+  "PCB": "#b03a2e",
+  "PSTU": "#7b241c",
+  "UP": "#8e44ad",
+  "UNIÃO": "#2e86c1"
+}

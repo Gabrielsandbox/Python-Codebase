@@ -105,3 +105,28 @@ def test_publish_snapshots(doc_br, doc_sp, doc_mun_sp, doc_catalogo, doc_municip
     assert st.read_json("6257/1/br.json")["lider"] == b["lider"]
     with pytest.raises(ValueError):
         st.write_json("../fora.json", {})
+
+
+def test_cores_por_partido(doc_br, doc_catalogo):
+    br = parse_resultado(doc_br)
+    cands = publish.ordem_candidatos(br)
+    cores = {"PT": "#c8102e", "PL": "#1f4fd8"}
+    meta = publish.build_meta(
+        encontrar(parse_catalogo(doc_catalogo), ano=2026, turno=1, cargo=1),
+        "1",
+        br,
+        cands,
+        cores=cores,
+    )
+    por_nome = {v["nome"]: v["cor"] for v in meta["candidatos"].values()}
+    assert por_nome["LULA"] == "#c8102e" and por_nome["FLAVIO BOLSONARO"] == "#1f4fd8"
+    assert len(set(por_nome.values())) == len(por_nome)  # 12 cores distintas
+
+
+def test_timeline_nao_duplica_apos_reinicio(doc_br):
+    br = parse_resultado(doc_br)
+    cands = publish.ordem_candidatos(br)
+    tl = publish.Timeline(cands)
+    tl.adicionar(br)
+    tl2 = publish.Timeline.from_dict(tl.to_dict(), cands)  # "reinício" do coletor
+    assert tl2.adicionar(br) is False and len(tl2.pontos) == 1

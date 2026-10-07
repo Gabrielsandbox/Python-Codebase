@@ -80,7 +80,10 @@ def historico_particoes(tabela: str = "votacao_candidato_munzona") -> JSONRespon
     from historico.consulta import particoes_disponiveis
 
     return JSONResponse(
-        {"tabela": tabela, "particoes": [{"ano": a, "turno": t} for a, t in particoes_disponiveis(tabela)]}
+        {
+            "tabela": tabela,
+            "particoes": [{"ano": a, "turno": t} for a, t in particoes_disponiveis(tabela)],
+        }
     )
 
 

@@ -46,7 +46,8 @@ Convenções:
 }
 ```
 
-`cor` é atribuída pelo publisher (paleta fixa por ordem de `cands`, sem conotação política).
+`cor` vem de `data/ref/cores.json` (por sigla de partido ou `n:<número>`); candidatos sem entrada
+recebem uma paleta neutra de reserva, sem repetição. Basta editar o JSON e reiniciar o coletor.
 
 ## `br.json` — totais nacionais (também usado para cada UF em `uf/{sigla}.json`)
 
@@ -81,12 +82,14 @@ Convenções:
   "margem_votos": 2224965,
   "margem_pct": 1.87,
   "situacao": { "280002551544": "2º turno", "280002542548": "2º turno" },
-  "definido": false
+  "definido": false,
+  "vencedor": null
 }
 ```
 
 - `pct` é sobre votos válidos (critério oficial).
-- `definido` = `true` quando o TSE marca algum candidato como eleito (`e: "s"` e `st` = "Eleito").
+- `definido` = `true` quando o TSE marca algum candidato como eleito (`e: "s"` e `st` = "Eleito");
+  `vencedor` traz o id desse candidato (ou `null`).
 - `situacao` traz o texto `st` do TSE por candidato ("Eleito", "2º turno", "Não eleito", ...).
 
 ## `uf.json` — todas as UFs em um arquivo (27 + ZZ exterior)
@@ -122,7 +125,8 @@ Cada entrada tem os mesmos campos de `br.json` exceto `schema`/`atualizado_em`/`
 }
 ```
 
-- Uma linha por município (5.570 + municípios do exterior com `uf: "ZZ"` e `ibge` começando em `99`... ignorar no mapa).
+- Uma linha por município (5.570 + municípios do exterior com `uf: "ZZ"` e `ibge` sintético
+  `99`+código TSE, igual a `ref/municipios.json`; sem geometria, ignorar no mapa).
 - `v` é array alinhado a `cands`.
 - Alvo de tamanho: < 400 KB bruto, < 100 KB gzip.
 - O frontend calcula líder, margem e percentuais localmente.
@@ -133,6 +137,7 @@ Cada entrada tem os mesmos campos de `br.json` exceto `schema`/`atualizado_em`/`
 {
   "schema": 1,
   "cands": ["280002551544", "280002542548"],
+  "ultimo_idg": "2837531",
   "pontos": [
     { "t": "2026-10-25T17:05:12-03:00", "secoes_pct": 1.2, "v": [120000, 98000], "pct": [52.1, 42.5] },
     ...
