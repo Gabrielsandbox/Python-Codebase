@@ -12,6 +12,9 @@ import { montarLinha } from './ui/linha';
 import { montarTabela } from './ui/tabela';
 import { montarChat } from './chat';
 
+// Base dos arquivos estáticos (geo/ref): '/' normalmente, './' em builds relativos (--base ./).
+const ESTATICO: string = import.meta.env.BASE_URL;
+
 const $ = (id: string) => document.getElementById(id)!;
 
 function mostrarErro(msg: string | null): void {
@@ -38,7 +41,7 @@ async function iniciar(): Promise<void> {
   // 1. descobre o snapshot ativo e carrega meta + referências em paralelo
   const { prefixo } = await descobrirAtivo();
   const u = urls(prefixo);
-  const [meta, refUfs] = await Promise.all([getJson<Meta>(u.meta), getJson<RefUfs>('/ref/ufs.json').catch(() => ({}) as RefUfs)]);
+  const [meta, refUfs] = await Promise.all([getJson<Meta>(u.meta), getJson<RefUfs>(`${ESTATICO}ref/ufs.json`).catch(() => ({}) as RefUfs)]);
   store.setRef(refUfs, null);
   store.setMeta(meta);
 
@@ -98,14 +101,14 @@ async function iniciar(): Promise<void> {
 
   // 5. geometria: estados primeiro (pequeno), municípios + referência em segundo plano
   secao.mostrarCarregando('Carregando mapa…');
-  const topoUf = await getJson<Topology>('/geo/br-uf.topo.json');
+  const topoUf = await getJson<Topology>(`${ESTATICO}geo/br-uf.topo.json`);
   secao.mapa.setGeoUf(topoUf);
   secao.mostrarCarregando(null);
 
   poller.registrar('mun', u.mun);
   void (async () => {
     try {
-      const [topoMun, refMun] = await Promise.all([getJson<Topology>('/geo/br-mun.topo.json'), getJson<RefMunicipios>('/ref/municipios.json').catch(() => null)]);
+      const [topoMun, refMun] = await Promise.all([getJson<Topology>(`${ESTATICO}geo/br-mun.topo.json`), getJson<RefMunicipios>(`${ESTATICO}ref/municipios.json`).catch(() => null)]);
       if (refMun) store.setRef(store.refUfs, refMun);
       await secao.mapa.setGeoMun(topoMun);
       (window as unknown as { __munPronto?: boolean }).__munPronto = true;
