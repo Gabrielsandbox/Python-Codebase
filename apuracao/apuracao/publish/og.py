@@ -119,3 +119,69 @@ def desenhar_placar(
     buf = io.BytesIO()
     img.save(buf, format="PNG", optimize=True)
     return buf.getvalue()
+
+
+def desenhar_aguardando(
+    *, data_eleicao: str = "", turno: int = 2, site: str = "", simulacao: bool = False
+) -> bytes:
+    """Imagem de compartilhamento antes de existir resultado (site no ar, apuração não começou).
+
+    Mesmo visual do placar, para o link já ter prévia no WhatsApp antes do dia.
+    """
+    W, H = 1200, 630
+    img = Image.new("RGB", (W, H), (17, 17, 19))
+    d = ImageDraw.Draw(img)
+    ano = data_eleicao[:4]
+    d.text(
+        (60, 44),
+        f"Apuração {ano} · {turno}º turno · Presidente".strip(),
+        font=_font(28, False),
+        fill=(190, 190, 195),
+    )
+    d.text((60, 86), "Brasil", font=_font(56), fill=(246, 245, 241))
+    d.rounded_rectangle((60, 200, W - 60, 440), radius=18, fill=(28, 28, 32))
+    d.text((96, 236), "Aguardando o início da apuração", font=_font(44), fill=(246, 245, 241))
+    if len(data_eleicao) >= 10:
+        a, m, dia = data_eleicao[:4], int(data_eleicao[5:7]), int(data_eleicao[8:10])
+        meses = [
+            "janeiro",
+            "fevereiro",
+            "março",
+            "abril",
+            "maio",
+            "junho",
+            "julho",
+            "agosto",
+            "setembro",
+            "outubro",
+            "novembro",
+            "dezembro",
+        ]
+        quando = f"{dia} de {meses[m - 1]} de {a}, a partir das 17h (Brasília)"
+    else:
+        quando = "no dia da eleição, a partir das 17h (Brasília)"
+    d.text((96, 304), quando, font=_font(30, False), fill=(190, 190, 195))
+    d.text(
+        (96, 360),
+        "Mapa por município, caminho para a vitória, chat ao vivo e alertas",
+        font=_font(26, False),
+        fill=(150, 150, 158),
+    )
+    if simulacao:
+        f = _font(64)
+        tw = d.textlength("SIMULAÇÃO · NÃO É RESULTADO", font=f)
+        d.text(((W - tw) / 2, 20), "SIMULAÇÃO · NÃO É RESULTADO", font=f, fill=(230, 60, 60))
+    d.line((60, 570, W - 60, 570), fill=(60, 60, 66), width=2)
+    d.text(
+        (60, 584),
+        "Fonte: TSE · dados oficiais, sem projeções",
+        font=_font(22, False),
+        fill=(150, 150, 158),
+    )
+    if site:
+        f = _font(22)
+        tw = d.textlength(site, font=f)
+        d.text((W - 60 - tw, 584), site, font=f, fill=(246, 245, 241))
+    buf = io.BytesIO()
+    img.save(buf, format="PNG", optimize=True)
+    return buf.getvalue()
