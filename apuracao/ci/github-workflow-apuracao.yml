@@ -1,0 +1,26 @@
+name: apuracao CI
+on:
+  push:
+    paths: ["apuracao/**"]
+  pull_request:
+    paths: ["apuracao/**"]
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: apuracao } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.13" }
+      - run: pip install -e ".[dev,historico,chat,alertas,imagens]"
+      - run: ruff check apuracao tests
+      - run: pytest -q
+  web:
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: apuracao/web } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm, cache-dependency-path: apuracao/web/package-lock.json }
+      - run: npm ci
+      - run: npm run build

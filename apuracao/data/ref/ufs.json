@@ -1,0 +1,142 @@
+{
+  "AC": {
+    "nome": "Acre",
+    "ibge": "12",
+    "regiao": "Norte"
+  },
+  "AL": {
+    "nome": "Alagoas",
+    "ibge": "27",
+    "regiao": "Nordeste"
+  },
+  "AM": {
+    "nome": "Amazonas",
+    "ibge": "13",
+    "regiao": "Norte"
+  },
+  "AP": {
+    "nome": "Amapá",
+    "ibge": "16",
+    "regiao": "Norte"
+  },
+  "BA": {
+    "nome": "Bahia",
+    "ibge": "29",
+    "regiao": "Nordeste"
+  },
+  "CE": {
+    "nome": "Ceará",
+    "ibge": "23",
+    "regiao": "Nordeste"
+  },
+  "DF": {
+    "nome": "Distrito Federal",
+    "ibge": "53",
+    "regiao": "Centro-Oeste"
+  },
+  "ES": {
+    "nome": "Espírito Santo",
+    "ibge": "32",
+    "regiao": "Sudeste"
+  },
+  "GO": {
+    "nome": "Goiás",
+    "ibge": "52",
+    "regiao": "Centro-Oeste"
+  },
+  "MA": {
+    "nome": "Maranhão",
+    "ibge": "21",
+    "regiao": "Nordeste"
+  },
+  "MG": {
+    "nome": "Minas Gerais",
+    "ibge": "31",
+    "regiao": "Sudeste"
+  },
+  "MS": {
+    "nome": "Mato Grosso do Sul",
+    "ibge": "50",
+    "regiao": "Centro-Oeste"
+  },
+  "MT": {
+    "nome": "Mato Grosso",
+    "ibge": "51",
+    "regiao": "Centro-Oeste"
+  },
+  "PA": {
+    "nome": "Pará",
+    "ibge": "15",
+    "regiao": "Norte"
+  },
+  "PB": {
+    "nome": "Paraíba",
+    "ibge": "25",
+    "regiao": "Nordeste"
+  },
+  "PE": {
+    "nome": "Pernambuco",
+    "ibge": "26",
+    "regiao": "Nordeste"
+  },
+  "PI": {
+    "nome": "Piauí",
+    "ibge": "22",
+    "regiao": "Nordeste"
+  },
+  "PR": {
+    "nome": "Paraná",
+    "ibge": "41",
+    "regiao": "Sul"
+  },
+  "RJ": {
+    "nome": "Rio de Janeiro",
+    "ibge": "33",
+    "regiao": "Sudeste"
+  },
+  "RN": {
+    "nome": "Rio Grande do Norte",
+    "ibge": "24",
+    "regiao": "Nordeste"
+  },
+  "RO": {
+    "nome": "Rondônia",
+    "ibge": "11",
+    "regiao": "Norte"
+  },
+  "RR": {
+    "nome": "Roraima",
+    "ibge": "14",
+    "regiao": "Norte"
+  },
+  "RS": {
+    "nome": "Rio Grande do Sul",
+    "ibge": "43",
+    "regiao": "Sul"
+  },
+  "SC": {
+    "nome": "Santa Catarina",
+    "ibge": "42",
+    "regiao": "Sul"
+  },
+  "SE": {
+    "nome": "Sergipe",
+    "ibge": "28",
+    "regiao": "Nordeste"
+  },
+  "SP": {
+    "nome": "São Paulo",
+    "ibge": "35",
+    "regiao": "Sudeste"
+  },
+  "TO": {
+    "nome": "Tocantins",
+    "ibge": "17",
+    "regiao": "Norte"
+  },
+  "ZZ": {
+    "nome": "Exterior",
+    "ibge": null,
+    "regiao": null
+  }
+}

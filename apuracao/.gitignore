@@ -1,0 +1,12 @@
+data/raw/
+data/latest/
+data/timeline/
+data/historico/
+*.parquet
+__pycache__/
+.venv/
+node_modules/
+web/dist/
+.env
+data/*.sqlite
+data/*.sqlite-*

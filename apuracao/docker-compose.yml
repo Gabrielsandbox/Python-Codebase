@@ -1,0 +1,43 @@
+services:
+  coletor:
+    build: .
+    command: ["apuracao", "coletar", "--ano", "2026", "--turno", "2", "--intervalo-rapido", "10", "--intervalo-mun", "60"]
+    env_file: [.env]
+    volumes: ["./data:/app/data"]
+    restart: unless-stopped
+
+  api:
+    build: .
+    command: ["apuracao", "servir", "--host", "0.0.0.0", "--port", "8000"]
+    env_file: [.env]
+    volumes: ["./data:/app/data", "./web/public:/app/web/public:ro"]
+    ports: ["8000:8000"]
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    restart: unless-stopped
+
+  chat:
+    build: .
+    command: ["python", "-m", "chat"]
+    env_file: [.env]
+    environment:
+      CHAT_REDIS_URL: redis://redis:6379/0
+      CHAT_DADOS_BASE: http://api:8000/dados
+    volumes: ["./data:/app/data"]
+    ports: ["8001:8001"]
+    depends_on: [redis, api]
+    restart: unless-stopped
+
+  alertas:
+    build: .
+    command: ["python", "-m", "alertas"]
+    env_file: [.env]
+    environment:
+      ALERTAS_DADOS_BASE: http://api:8000/dados
+    volumes: ["./data:/app/data"]
+    ports: ["8002:8002"]
+    depends_on: [api]
+    restart: unless-stopped

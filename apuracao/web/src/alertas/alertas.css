@@ -1,0 +1,273 @@
+/* ================================================================== alertas (sino + popover)
+   Montado em #topbar .status (ou no slot #alertas). Tokens vêm de styles.css. */
+.alertas {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+}
+.al-bell {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  color: var(--ink-2);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  position: relative;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease;
+}
+.al-bell:hover {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+.al-bell:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+.al-bell.on {
+  color: var(--ink);
+  border-color: var(--done);
+}
+.al-dot {
+  position: absolute;
+  top: 5px;
+  right: 6px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--done);
+  box-shadow: 0 0 0 2px var(--surface);
+}
+.al-dot[hidden] {
+  display: none;
+}
+
+/* no celular o .status é display:contents com áreas nomeadas: criamos uma 3ª coluna */
+@media (max-width: 640px) {
+  .topbar-inner:has(.alertas) {
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    grid-template-areas:
+      "titulo badge sino"
+      "sub upd sino";
+    column-gap: 10px;
+  }
+  .alertas {
+    grid-area: sino;
+    align-self: center;
+  }
+  .al-bell {
+    width: 32px;
+    height: 32px;
+  }
+}
+
+/* popover ------------------------------------------------------------------- */
+.al-pop {
+  position: fixed; /* top/right definidos pelo script a partir do sino */
+  top: 60px;
+  right: 16px;
+  width: 340px;
+  max-width: calc(100vw - 32px);
+  padding: 14px 16px 16px;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: var(--shadow);
+  z-index: 30;
+  text-align: left;
+  animation: fresh-in 0.2s ease-out;
+}
+.al-pop[hidden] {
+  display: none;
+}
+.al-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.al-head h3 {
+  font-size: 15px;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+.al-x {
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--muted);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+.al-x:hover {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+.al-intro {
+  margin: 6px 0 12px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--ink-2);
+}
+.al-eventos {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0 -6px 12px;
+}
+.al-eventos[hidden] {
+  display: none;
+}
+.al-ev {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 7px 6px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13.5px;
+}
+.al-ev:hover {
+  background: var(--surface-2);
+}
+.al-ev input {
+  margin: 2px 0 0;
+  width: 16px;
+  height: 16px;
+  accent-color: var(--ink);
+  flex: none;
+}
+.al-ev-txt {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.al-ev-txt b {
+  font-weight: 600;
+}
+.al-ev-txt small {
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.al-acoes {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.al-primary {
+  flex: 1;
+  height: 40px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--ink);
+  color: var(--bg);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.al-primary:hover {
+  opacity: 0.9;
+}
+.al-primary:disabled {
+  opacity: 0.55;
+  cursor: progress;
+}
+.al-primary[hidden] {
+  display: none;
+}
+.al-link {
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--muted);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.al-link:hover {
+  color: var(--ink);
+}
+.al-link[hidden] {
+  display: none;
+}
+.al-status {
+  margin: 10px 0 0;
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--ink-2);
+}
+.al-status:empty {
+  display: none;
+}
+.al-status[data-tom="ok"] {
+  color: var(--done);
+  font-weight: 600;
+}
+.al-status[data-tom="erro"] {
+  color: var(--live);
+}
+.al-dica {
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--surface-2);
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--ink-2);
+}
+.al-dica[hidden] {
+  display: none;
+}
+.al-telegram {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+  width: 100%;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+  text-decoration: none;
+}
+.al-telegram svg {
+  color: #2aabee;
+}
+.al-telegram:hover span {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.al-telegram[hidden] {
+  display: none;
+}
+
+@media (max-width: 640px) {
+  .al-pop {
+    top: auto;
+    right: 16px;
+    left: 16px;
+    width: auto;
+    max-width: none;
+    bottom: calc(16px + env(safe-area-inset-bottom));
+    z-index: 46; /* acima do botão flutuante do chat (43) e do bottom sheet (45) */
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .al-pop {
+    animation: none;
+  }
+}

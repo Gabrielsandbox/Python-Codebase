@@ -1,0 +1,7 @@
+# Termos bloqueados no chat (um por linha; casa palavra inteira, sem diferenciar
+# maiúsculas nem acentos). Linhas iniciadas com # são comentários.
+# Preencha com a política de moderação do produto antes do dia da apuração.
+# Exemplos de spam:
+pix premiado
+ganhe dinheiro
+clique aqui

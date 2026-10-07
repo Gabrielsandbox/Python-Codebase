@@ -1,0 +1,499 @@
+"""Hub de conexões: salas, broadcast em lotes, histórico, presença, reações, termômetro e placar.
+
+Escala: o custo de um chat é ``pessoas na sala × mensagens por segundo``. Para que ele não
+exploda numa sala de 10 mil pessoas, as mensagens são **agrupadas**: a cada ``LOTE_MS`` cada
+sala recebe um único frame ``{"tipo":"lote","itens":[...]}``, serializado **uma vez** e enviado a
+todas as conexões da sala. "É minha" é resolvido no cliente pelo código ``autor`` (hash curto
+do usuário), devolvido em ``/chat/acesso``. Custo por pessoa: ~3 frames/s, seja qual for o
+volume de mensagens. Além disso cada sala tem um teto de mensagens/s (``TETO_SALA_MSGS``):
+acima dele a sala entra em "modo lento" e o excesso recebe erro ``lotado``.
+
+Em memória por padrão (1 processo). Com ``redis_url``:
+- ``PUBLISH chat:sala`` leva cada mensagem a todos os processos (campo ``sala`` filtra);
+- ``LPUSH/LTRIM chat:hist:<sala>`` guarda o histórico por sala;
+- ``SET chat:presenca:<proc> {sala: n} EX 15`` por processo; o total é a soma das chaves;
+- ``HINCRBY chat:reacoes:<sala>:<janela2s>`` e ``INCRBY chat:torcida:<sala>:<cand>:<minuto>``
+  agregam reações entre processos (TTL curto).
+"""
+
+from __future__ import annotations
+
+import asyncio
+import contextlib
+import hashlib
+import logging
+import secrets
+import time
+from collections import defaultdict, deque
+from datetime import datetime, timedelta, timezone
+
+import httpx
+import orjson
+from starlette.websockets import WebSocket
+
+log = logging.getLogger("apuracao.chat.hub")
+
+
+def _sem_senha(url: str) -> str:
+    """Esconde a senha de uma URL (``redis://user:senha@host``) para logs."""
+    from urllib.parse import urlsplit, urlunsplit
+
+    u = urlsplit(url)
+    if not u.password:
+        return url
+    host = u.hostname or ""
+    if u.port:
+        host += f":{u.port}"
+    netloc = f"{u.username}:***@{host}" if u.username else f"***@{host}"
+    return urlunsplit((u.scheme, netloc, u.path, u.query, u.fragment))
+
+
+BRT = timezone(timedelta(hours=-3))
+
+CANAL = "chat:sala"
+HIST = "chat:hist:"
+PRESENCA = "chat:presenca:"
+REACOES = "chat:reacoes:"
+TORCIDA = "chat:torcida:"
+
+UFS = {
+    "AC", "AL", "AM", "AP", "BA", "CE", "DF", "ES", "GO", "MA", "MG", "MS", "MT", "PA", "PB", "PE",
+    "PI", "PR", "RJ", "RN", "RO", "RR", "RS", "SC", "SE", "SP", "TO", "ZZ",
+}  # fmt: skip
+SALAS = {"geral", *UFS}
+EMOJIS = {"🔥", "👏", "😱", "😂", "🇧🇷"}
+JANELA_REACOES_S = 2
+JANELA_TORCIDA_MIN = 5
+LOTE_MS = 300  # intervalo de entrega dos lotes por sala
+TETO_SALA_MSGS = 15  # mensagens/s por sala; acima disso → "lotado" (modo lento)
+
+
+def sala_valida(s: str | None) -> str | None:
+    s = (s or "geral").strip()
+    s = s.upper() if s.lower() != "geral" else "geral"
+    return s if s in SALAS else None
+
+
+def reacao_valida(valor: str, cands: set[str]) -> bool:
+    if valor in EMOJIS:
+        return True
+    return valor.startswith("torcida:") and valor[8:] in cands
+
+
+def codigo_autor(sub: str) -> str:
+    """Código público e estável do usuário (não revela o ``sub``)."""
+    return hashlib.sha256(sub.encode()).hexdigest()[:10]
+
+
+def agora_iso() -> str:
+    return datetime.now(BRT).replace(microsecond=0).isoformat()
+
+
+def novo_id() -> str:
+    # ordenável no tempo + aleatório: ms em hex (12) + 6 bytes
+    return f"{int(time.time() * 1000):012x}{secrets.token_hex(6)}"
+
+
+class Hub:
+    def __init__(
+        self,
+        *,
+        historico: int = 50,
+        redis_url: str | None = None,
+        dados_base: str | None = None,
+        db=None,
+        lote_ms: int = LOTE_MS,
+        teto_sala: int = TETO_SALA_MSGS,
+    ) -> None:
+        self.historico_n = historico
+        self.redis_url = redis_url
+        self.dados_base = dados_base
+        self.db = db
+        self.lote_ms = lote_ms
+        self.teto_sala = teto_sala
+        self._conexoes: dict[WebSocket, dict] = {}
+        self._por_sala: dict[str, set[WebSocket]] = defaultdict(set)
+        self._hist: dict[str, deque[dict]] = defaultdict(lambda: deque(maxlen=historico))
+        self._pendentes: dict[str, list[dict]] = defaultdict(list)  # sala → lote em formação
+        self._pendentes_todas: list[dict] = []  # sistema sem sala → todas
+        self._taxa_sala: dict[str, deque[float]] = defaultdict(deque)  # instantes das msgs
+        self._redis = None
+        self._proc = secrets.token_hex(4)
+        self._tasks: list[asyncio.Task] = []
+        self._presenca_cache: tuple[float, dict[str, int]] = (0.0, {})
+        self._ultimo_idg: str | None = None
+        self.cands: set[str] = set()  # ids válidos para "torcida:<id>" (de meta.json)
+        self._reacoes: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+        self._torcida: dict[tuple[str, str, int], int] = defaultdict(int)
+
+    # ------------------------------------------------------------------ ciclo de vida
+    async def iniciar(self) -> None:
+        if self.redis_url:
+            import redis.asyncio as aioredis
+
+            self._redis = aioredis.from_url(self.redis_url, decode_responses=False)
+            await self._redis.ping()
+            self._tasks.append(asyncio.create_task(self._assinar_redis()))
+            log.info("hub com redis (%s), proc=%s", _sem_senha(self.redis_url), self._proc)
+        elif self.db:
+            for sala in SALAS:
+                for m in self.db.ultimas(self.historico_n, sala=sala):
+                    self._hist[sala].append({"tipo": "msg", **m})
+        self._tasks.append(asyncio.create_task(self._loop_lotes()))
+        self._tasks.append(asyncio.create_task(self._loop_presenca()))
+        self._tasks.append(asyncio.create_task(self._loop_reacoes()))
+        self._tasks.append(asyncio.create_task(self._loop_termometro()))
+        if self.dados_base:
+            self._tasks.append(asyncio.create_task(self._loop_placar()))
+
+    async def parar(self) -> None:
+        for t in self._tasks:
+            t.cancel()
+        for t in self._tasks:
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await t
+        if self._redis is not None:
+            with contextlib.suppress(Exception):
+                await self._redis.delete(PRESENCA + self._proc)
+                await self._redis.aclose()
+
+    # ------------------------------------------------------------------ conexões
+    async def entrar(self, ws: WebSocket, claims: dict, sala: str = "geral") -> None:
+        # Envia histórico antes de registrar a conexão, para os loops não entregarem
+        # um frame antes do "historico".
+        historico = await self.ultimas(sala, claims.get("sub"))
+        self._conexoes[ws] = {**claims, "sala": sala}
+        self._por_sala[sala].add(ws)
+        await self._atualizar_presenca()
+        await ws.send_text(
+            orjson.dumps({"tipo": "historico", "sala": sala, "mensagens": historico}).decode()
+        )
+        await ws.send_text(
+            orjson.dumps(
+                {"tipo": "presenca", "sala": sala, "online": await self.online(sala)}
+            ).decode()
+        )
+
+    def sair(self, ws: WebSocket) -> None:
+        c = self._conexoes.pop(ws, None)
+        if c is None:
+            return
+        self._por_sala[c.get("sala", "geral")].discard(ws)
+        if self._redis is not None:
+            with contextlib.suppress(RuntimeError):
+                asyncio.get_running_loop().create_task(self._atualizar_presenca())
+
+    def _locais(self) -> dict[str, int]:
+        return {s: len(ws) for s, ws in self._por_sala.items() if ws}
+
+    async def _atualizar_presenca(self) -> None:
+        if self._redis is not None:
+            with contextlib.suppress(Exception):
+                await self._redis.set(PRESENCA + self._proc, orjson.dumps(self._locais()), ex=15)
+        self._presenca_cache = (0.0, {})  # invalida o cache
+
+    @property
+    def locais(self) -> int:
+        return len(self._conexoes)
+
+    # ------------------------------------------------------------------ mensagens
+    def sala_lotada(self, sala: str) -> bool:
+        """Teto de mensagens/s por sala (modo lento). Conta só o que este processo vê;
+        com vários processos o teto efetivo é ``teto × processos``, suficiente na prática."""
+        agora = time.monotonic()
+        fila = self._taxa_sala[sala]
+        while fila and agora - fila[0] > 1.0:
+            fila.popleft()
+        if len(fila) >= self.teto_sala:
+            return True
+        fila.append(agora)
+        return False
+
+    async def publicar_msg(self, sub: str, apelido: str, texto: str, sala: str = "geral") -> dict:
+        msg = {
+            "tipo": "msg",
+            "id": novo_id(),
+            "sub": sub,
+            "autor": codigo_autor(sub),
+            "apelido": apelido,
+            "texto": texto,
+            "sala": sala,
+            "t": agora_iso(),
+        }
+        if self.db:
+            self.db.gravar_mensagem(msg["id"], sub, apelido, texto, msg["t"], sala=sala)
+        await self._publicar(msg)
+        return msg
+
+    async def publicar_sistema(self, texto: str, sala: str | None = None) -> None:
+        msg = {"tipo": "sistema", "id": novo_id(), "texto": texto, "t": agora_iso()}
+        if sala:
+            msg["sala"] = sala
+        await self._publicar(msg)
+
+    async def _publicar(self, msg: dict) -> None:
+        if self._redis is not None:
+            raw = orjson.dumps(msg)
+            pipe = self._redis.pipeline()
+            pipe.publish(CANAL, raw)
+            if msg["tipo"] == "msg":
+                pipe.lpush(HIST + msg["sala"], raw)
+                pipe.ltrim(HIST + msg["sala"], 0, self.historico_n - 1)
+            await pipe.execute()
+        else:
+            self._enfileirar(msg)
+
+    def _enfileirar(self, msg: dict) -> None:
+        """Guarda no histórico e no lote da sala; a entrega acontece no ``_loop_lotes``."""
+        sala = msg.get("sala")
+        if msg["tipo"] == "msg" and sala:
+            self._hist[sala].append(msg)
+        publico = {k: v for k, v in msg.items() if k != "sub"}
+        if sala:
+            self._pendentes[sala].append(publico)
+        else:
+            self._pendentes_todas.append(publico)
+
+    async def _loop_lotes(self) -> None:
+        """A cada ``lote_ms`` serializa um frame por sala e envia a todas as conexões dela."""
+        while True:
+            await asyncio.sleep(self.lote_ms / 1000)
+            try:
+                todas = self._pendentes_todas
+                self._pendentes_todas = []
+                salas = set(self._pendentes) | (set(self._por_sala) if todas else set())
+                for sala in salas:
+                    itens = self._pendentes.pop(sala, [])
+                    if todas:
+                        itens = todas + itens
+                    if not itens:
+                        continue
+                    await self._enviar_sala(sala, {"tipo": "lote", "itens": itens})
+            except Exception:
+                log.exception("lotes")
+
+    async def _entregar(self, msg: dict) -> None:
+        """Compatibilidade: enfileira (a entrega é em lote)."""
+        self._enfileirar(msg)
+
+    async def ultimas(self, sala: str = "geral", sub: str | None = None) -> list[dict]:
+        if self._redis is not None:
+            raws = await self._redis.lrange(HIST + sala, 0, self.historico_n - 1)
+            itens = [orjson.loads(r) for r in reversed(raws)]
+        else:
+            itens = list(self._hist[sala])
+        return [
+            {**{k: v for k, v in m.items() if k != "sub"}, "eu": bool(sub) and m.get("sub") == sub}
+            for m in itens
+        ]
+
+    # ------------------------------------------------------------------ presença
+    async def salas(self) -> dict[str, int]:
+        """Online por sala (só salas com gente)."""
+        if self._redis is None:
+            return self._locais()
+        t, cache = self._presenca_cache
+        if time.monotonic() - t < 2:
+            return cache
+        total: dict[str, int] = defaultdict(int)
+        async for chave in self._redis.scan_iter(match=PRESENCA + "*"):
+            v = await self._redis.get(chave)
+            if v:
+                with contextlib.suppress(Exception):
+                    for s, n in orjson.loads(v).items():
+                        total[s] += int(n)
+        self._presenca_cache = (time.monotonic(), dict(total))
+        return dict(total)
+
+    async def online(self, sala: str | None = None) -> int:
+        s = await self.salas()
+        return s.get(sala, 0) if sala else sum(s.values())
+
+    async def _loop_presenca(self) -> None:
+        while True:
+            try:
+                await self._atualizar_presenca()
+                s = await self.salas()
+                for sala, n in s.items():
+                    if self._por_sala.get(sala):
+                        await self._enviar_sala(
+                            sala, {"tipo": "presenca", "sala": sala, "online": n}
+                        )
+            except Exception:
+                log.exception("presença")
+            await asyncio.sleep(5)
+
+    # ------------------------------------------------------------------ envio
+    async def _enviar_sala(self, sala: str, doc: dict) -> None:
+        """Serializa uma vez e envia a todas as conexões da sala (as mortas são removidas)."""
+        raw = orjson.dumps(doc).decode()
+        mortas: list[WebSocket] = []
+        for ws in list(self._por_sala.get(sala, ())):
+            try:
+                await ws.send_text(raw)
+            except Exception:  # noqa: BLE001 — conexão fechada
+                mortas.append(ws)
+        for ws in mortas:
+            self.sair(ws)
+
+    # ------------------------------------------------------------------ reações
+    async def reagir(self, sala: str, valor: str) -> None:
+        janela = int(time.time() // JANELA_REACOES_S)
+        minuto = int(time.time() // 60)
+        if self._redis is not None:
+            pipe = self._redis.pipeline()
+            pipe.hincrby(f"{REACOES}{sala}:{janela}", valor, 1)
+            pipe.expire(f"{REACOES}{sala}:{janela}", 10)
+            if valor.startswith("torcida:"):
+                k = f"{TORCIDA}{sala}:{valor[8:]}:{minuto}"
+                pipe.incrby(k, 1)
+                pipe.expire(k, (JANELA_TORCIDA_MIN + 1) * 60)
+            await pipe.execute()
+        else:
+            self._reacoes[sala][valor] += 1
+            if valor.startswith("torcida:"):
+                self._torcida[(sala, valor[8:], minuto)] += 1
+
+    async def _loop_reacoes(self) -> None:
+        """A cada 2 s entrega a contagem da janela anterior a cada sala com gente."""
+        while True:
+            await asyncio.sleep(JANELA_REACOES_S)
+            try:
+                salas = set(self._locais())
+                if self._redis is not None:
+                    janela = int(time.time() // JANELA_REACOES_S) - 1
+                    for sala in salas:
+                        h = await self._redis.hgetall(f"{REACOES}{sala}:{janela}")
+                        if h:
+                            contagem = {k.decode(): int(v) for k, v in h.items()}
+                            await self._enviar_sala(
+                                sala,
+                                {
+                                    "tipo": "reacoes",
+                                    "janela_s": JANELA_REACOES_S,
+                                    "contagem": contagem,
+                                },
+                            )
+                else:
+                    for sala in salas:
+                        contagem = dict(self._reacoes.pop(sala, {}))
+                        if contagem:
+                            await self._enviar_sala(
+                                sala,
+                                {
+                                    "tipo": "reacoes",
+                                    "janela_s": JANELA_REACOES_S,
+                                    "contagem": contagem,
+                                },
+                            )
+            except Exception:
+                log.exception("reações")
+
+    async def torcida(self, sala: str) -> dict[str, int]:
+        minuto = int(time.time() // 60)
+        minutos = range(minuto - JANELA_TORCIDA_MIN + 1, minuto + 1)
+        out: dict[str, int] = {}
+        if self._redis is not None:
+            for cand in self.cands:
+                vals = await self._redis.mget([f"{TORCIDA}{sala}:{cand}:{m}" for m in minutos])
+                n = sum(int(v) for v in vals if v)
+                if n:
+                    out[cand] = n
+        else:
+            for (s, cand, m), n in list(self._torcida.items()):
+                if s != sala:
+                    continue
+                if m < minuto - JANELA_TORCIDA_MIN:
+                    del self._torcida[(s, cand, m)]
+                elif m in minutos:
+                    out[cand] = out.get(cand, 0) + n
+        return out
+
+    async def _loop_termometro(self) -> None:
+        while True:
+            await asyncio.sleep(5)
+            try:
+                for sala in set(self._locais()):
+                    t = await self.torcida(sala)
+                    await self._enviar_sala(
+                        sala,
+                        {
+                            "tipo": "termometro",
+                            "janela_min": JANELA_TORCIDA_MIN,
+                            "torcida": t,
+                            "total": sum(t.values()),
+                        },
+                    )
+            except Exception:
+                log.exception("termômetro")
+
+    # ------------------------------------------------------------------ redis
+    async def _assinar_redis(self) -> None:
+        assert self._redis is not None
+        pubsub = self._redis.pubsub()
+        await pubsub.subscribe(CANAL)
+        async for item in pubsub.listen():
+            if item.get("type") != "message":
+                continue
+            try:
+                msg = orjson.loads(item["data"])
+            except orjson.JSONDecodeError:
+                continue
+            self._enfileirar(msg)
+
+    # ------------------------------------------------------------------ placar
+    async def _loop_placar(self) -> None:
+        """Lê ``br.json`` publicado pelo coletor e emite mensagem de sistema quando muda."""
+        base = (self.dados_base or "").rstrip("/")
+        async with httpx.AsyncClient(timeout=10) as cli:
+            while True:
+                try:
+                    ativo = (
+                        await cli.get(f"{base}/ativo.json", headers={"Cache-Control": "no-cache"})
+                    ).json()
+                    pref = ativo["prefixo"]
+                    meta = (await cli.get(f"{base}/{pref}/meta.json")).json()
+                    self.cands = set(meta.get("cands") or [])
+                    st = (
+                        await cli.get(
+                            f"{base}/{pref}/status.json", headers={"Cache-Control": "no-cache"}
+                        )
+                    ).json()
+                    idg = st.get("fonte_idg")
+                    if idg and idg != self._ultimo_idg:
+                        br = (
+                            await cli.get(
+                                f"{base}/{pref}/br.json", headers={"Cache-Control": "no-cache"}
+                            )
+                        ).json()
+                        # só o primeiro processo a ver o idg publica (lock curto no redis)
+                        primeiro = self._redis is None or await self._redis.set(
+                            f"chat:placar:{idg}", 1, ex=600, nx=True
+                        )
+                        if primeiro and self._ultimo_idg is not None:  # não anuncia na partida
+                            await self.publicar_sistema(frase_placar(meta, br))
+                    self._ultimo_idg = idg
+                except Exception as exc:  # noqa: BLE001
+                    log.debug("placar indisponível: %s", exc)
+                await asyncio.sleep(10)
+
+
+def frase_placar(meta: dict, br: dict) -> str:
+    """``Flavio Bolsonaro 50,4% × Lula 49,6% — 71,2% das seções totalizadas``."""
+    cands = br.get("cands") or []
+    pcts = br.get("pct") or []
+    nomes = meta.get("candidatos") or {}
+    pares = sorted(zip(cands, pcts, strict=False), key=lambda x: -x[1])[:2]
+    partes = [
+        f"{titulo(nomes.get(c, {}).get('nome', c))} {p:.1f}%".replace(".", ",") for c, p in pares
+    ]
+    sec = f"{br.get('secoes', {}).get('pct', 0):.1f}".replace(".", ",")
+    frase = " × ".join(partes) + f" — {sec}% das seções totalizadas"
+    if br.get("definido") and br.get("vencedor"):
+        frase = f"🏁 {titulo(nomes.get(br['vencedor'], {}).get('nome', ''))} eleito. " + frase
+    return frase
+
+
+def titulo(nome: str) -> str:
+    minus = {"de", "da", "do", "dos", "das", "e"}
+    return " ".join(p if p in minus else p.capitalize() for p in nome.lower().split())
