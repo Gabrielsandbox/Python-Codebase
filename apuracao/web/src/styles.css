@@ -2658,7 +2658,15 @@ html[data-chat-layout="sheet"] .pay-legal {
 }
 .aguardando-ind {
   margin: 6px 0 0;
+  white-space: normal;
+  line-height: 1.4;
+  cursor: default;
+  align-items: flex-start;
+}
+.aguardando-ind .beat {
+  margin-top: 4px;
 }
 .aguardando-ind .secs {
   min-width: 0;
+  white-space: normal;
 }
