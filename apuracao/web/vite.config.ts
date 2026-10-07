@@ -9,6 +9,7 @@ const proxy = {
   '/dados': { target: 'http://127.0.0.1:8000', changeOrigin: true },
   '/chat': { target: 'http://127.0.0.1:8001', changeOrigin: true, ws: true },
   '/alertas': { target: 'http://127.0.0.1:8002', changeOrigin: true },
+  '/conta': { target: 'http://127.0.0.1:8001', changeOrigin: true },
 };
 
 export default defineConfig({

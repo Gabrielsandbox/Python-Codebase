@@ -16,10 +16,19 @@ from pydantic import BaseModel, Field
 
 from . import JWT_SECRET_PADRAO, Config
 from .auth import ApelidoInvalido, emitir_token, normalizar_apelido, novo_ref, verificar_token
+from .contas import (
+    EmailInvalido,
+    corpo_email_login,
+    enviar_email,
+    hash_token,
+    normalizar_email,
+    novo_id_usuario,
+    novo_token_login,
+)
 from .db import DB
 from .hub import Hub, codigo_autor, reacao_valida, sala_valida
 from .moderacao import LimiteTaxa, TextoInvalido, bloqueado, carregar_bloqueio, higienizar
-from .pagamentos import ProvedorStripe, criar_provedor
+from .pagamentos import ProvedorStripe, anexar_query, criar_provedor
 
 log = logging.getLogger("apuracao.chat")
 
@@ -30,6 +39,12 @@ WS_SALA_INVALIDA = 4400
 
 class CheckoutIn(BaseModel):
     apelido: str = Field(min_length=1, max_length=64)
+    email: str = Field(min_length=3, max_length=254)
+    retorno: str = Field(min_length=1, max_length=2048)
+
+
+class LoginIn(BaseModel):
+    email: str = Field(min_length=3, max_length=254)
     retorno: str = Field(min_length=1, max_length=2048)
 
 
@@ -71,6 +86,7 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
                 "preco_centavos": cfg.preco_centavos,
                 "mensagens_total": db.total_mensagens(),
                 "provedor": provedor.nome,
+                "contas": db.total_usuarios(),
             },
             headers={"Cache-Control": "public, max-age=5"},
         )
@@ -103,16 +119,50 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
     def checkout(body: CheckoutIn) -> dict[str, Any]:
         try:
             apelido = normalizar_apelido(body.apelido)
-        except ApelidoInvalido as exc:
+            email = normalizar_email(body.email)
+        except (ApelidoInvalido, EmailInvalido) as exc:
             raise HTTPException(422, str(exc)) from exc
         if not body.retorno.startswith(("http://", "https://")):
             raise HTTPException(422, "retorno deve ser uma URL absoluta")
         ref = novo_ref()
         ck = provedor.criar_checkout(
-            ref=ref, apelido=apelido, retorno=body.retorno, valor_centavos=cfg.preco_centavos
+            ref=ref,
+            apelido=apelido,
+            retorno=body.retorno,
+            valor_centavos=cfg.preco_centavos,
+            email=email,
         )
-        db.criar_pagamento(ref, provedor.nome, apelido, cfg.preco_centavos, ck.provedor_id)
+        db.criar_pagamento(
+            ref, provedor.nome, apelido, cfg.preco_centavos, ck.provedor_id, email=email
+        )
         return {"url": ck.url, "ref": ref}
+
+    def _sessao(usuario_id: str, apelido: str, email: str | None) -> JSONResponse:
+        """Token de longa duração: quem pagou fica logado (a conta vale para a plataforma)."""
+        token, exp = emitir_token(cfg.jwt_secret, usuario_id, apelido, cfg.jwt_dias, email=email)
+        return JSONResponse(
+            {
+                "token": token,
+                "apelido": apelido,
+                "email": email,
+                "expira_em": exp.isoformat(),
+                "autor": codigo_autor(usuario_id),
+            }
+        )
+
+    def _conta_do_pagamento(pg: Any, email_confirmado: str | None = None) -> tuple[str, str | None]:
+        """Garante a conta do pagamento pago e devolve (sub, email). Pagamentos antigos sem
+        e-mail continuam com o ``ref`` como identidade."""
+        if pg["usuario_id"]:
+            u = db.usuario(pg["usuario_id"])
+            if u is not None:
+                return u["id"], u["email"]
+        email = email_confirmado or pg["email"]
+        if not email:
+            return pg["ref"], None
+        u = db.obter_ou_criar_usuario(novo_id_usuario(), email, pg["apelido"])
+        db.vincular_pagamento(pg["ref"], u["id"], email)
+        return u["id"], u["email"]
 
     @app.get("/chat/acesso")
     def acesso(ref: str = Query(min_length=4, max_length=64)) -> JSONResponse:
@@ -127,15 +177,11 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
                 raise HTTPException(410, "pagamento expirado; inicie de novo")
             else:
                 return JSONResponse({"detail": "pagamento pendente"}, status_code=402)
-        token, exp = emitir_token(cfg.jwt_secret, ref, pg["apelido"], cfg.jwt_dias)
-        return JSONResponse(
-            {
-                "token": token,
-                "apelido": pg["apelido"],
-                "expira_em": exp.isoformat(),
-                "autor": codigo_autor(ref),
-            }
-        )
+        pg = db.pagamento(ref)
+        sub, email = _conta_do_pagamento(pg)
+        if email:
+            db.tocar_acesso(sub)
+        return _sessao(sub, pg["apelido"], email)
 
     @app.get("/chat/eu")
     def eu(request: Request) -> dict[str, Any]:
@@ -146,9 +192,48 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
             raise HTTPException(401, "token inválido ou expirado")
         return {
             "apelido": claims["apelido"],
+            "email": claims.get("email"),
             "expira_em": datetime.fromtimestamp(claims["exp"], tz=UTC).isoformat(),
             "autor": codigo_autor(claims["sub"]),
         }
+
+    # ------------------------------------------------------------------ conta (login por e-mail)
+    @app.post("/conta/login")
+    def conta_login(body: LoginIn) -> dict[str, Any]:
+        """Envia um link de acesso de uso único (30 min) para quem já tem conta. A resposta é
+        sempre a mesma, exista ou não a conta, para não revelar e-mails cadastrados."""
+        try:
+            email = normalizar_email(body.email)
+        except EmailInvalido as exc:
+            raise HTTPException(422, str(exc)) from exc
+        if not body.retorno.startswith(("http://", "https://")):
+            raise HTTPException(422, "retorno deve ser uma URL absoluta")
+        resposta: dict[str, Any] = {"ok": True}
+        u = db.usuario_por_email(email)
+        if u is not None:
+            tok, tok_hash, exp = novo_token_login()
+            db.criar_login(tok_hash, u["id"], exp.isoformat())
+            link = anexar_query(body.retorno, login=tok)
+            assunto, texto = corpo_email_login(link, u["apelido"])
+            enviado = enviar_email(
+                api_key=cfg.resend_api_key,
+                de=cfg.email_de,
+                para=email,
+                assunto=assunto,
+                texto=texto,
+            )
+            if cfg.pagamento == "dev" and not enviado:
+                resposta["link"] = link  # dev sem e-mail: devolve o link para testar o fluxo
+        return resposta
+
+    @app.get("/conta/entrar")
+    def conta_entrar(token: str = Query(min_length=16, max_length=128)) -> JSONResponse:
+        uid = db.consumir_login(hash_token(token))
+        u = db.usuario(uid) if uid else None
+        if u is None:
+            raise HTTPException(410, "link inválido, já usado ou vencido; peça um novo")
+        db.tocar_acesso(u["id"])
+        return _sessao(u["id"], u["apelido"], u["email"])
 
     @app.post("/chat/webhook/stripe")
     async def webhook_stripe(request: Request) -> dict[str, Any]:
@@ -169,6 +254,14 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
             ref = _campo(obj, "client_reference_id") or _campo(meta_, "ref")
             if ref and db.marcar_pago(ref):
                 log.info("pagamento confirmado %s", ref)
+            if ref and (pg := db.pagamento(ref)) is not None and pg["status"] == "pago":
+                detalhes = _campo(obj, "customer_details") or {}
+                email_conf = _campo(detalhes, "email")
+                try:
+                    email_conf = normalizar_email(email_conf) if email_conf else None
+                except EmailInvalido:
+                    email_conf = None
+                _conta_do_pagamento(pg, email_conf)
         return {"ok": True}
 
     # ------------------------------------------------------------------ WebSocket

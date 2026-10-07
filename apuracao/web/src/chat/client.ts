@@ -8,6 +8,8 @@ export const CHAT_BASE: string = (import.meta.env.VITE_CHAT_BASE as string | und
 
 export const CHAVE_TOKEN = 'chat_token';
 export const CHAVE_APELIDO = 'chat_apelido';
+export const CHAVE_EMAIL = 'chat_email';
+export const EMAIL_RE = /^[^@\s]{1,64}@[^@\s]+\.[^@\s]{2,}$/;
 export const MAX_TEXTO = 280;
 export const APELIDO_RE = /^[\p{L}\p{N}_ ]{2,24}$/u;
 
@@ -26,6 +28,7 @@ export interface Checkout {
 export interface Acesso {
   token: string;
   apelido: string;
+  email?: string | null;
   expira_em: string;
   autor?: string;
 }
@@ -89,7 +92,11 @@ export class ChatHttpError extends Error {
 }
 
 async function chamar<T>(caminho: string, init?: RequestInit): Promise<T> {
-  const r = await fetch(`${CHAT_BASE}${caminho}`, { ...init, headers: { Accept: 'application/json', ...(init?.headers ?? {}) } });
+  return chamarUrl<T>(`${CHAT_BASE}${caminho}`, init);
+}
+
+async function chamarUrl<T>(url: string, init?: RequestInit): Promise<T> {
+  const r = await fetch(url, { ...init, headers: { Accept: 'application/json', ...(init?.headers ?? {}) } });
   if (!r.ok) {
     let detail = r.statusText;
     try {
@@ -105,13 +112,27 @@ async function chamar<T>(caminho: string, init?: RequestInit): Promise<T> {
 
 export const estado = (): Promise<Estado> => chamar<Estado>('/estado', { cache: 'no-cache' });
 
-export const checkout = (apelido: string, retorno: string): Promise<Checkout> =>
-  chamar<Checkout>('/checkout', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ apelido, retorno }) });
+export const checkout = (apelido: string, email: string, retorno: string): Promise<Checkout> =>
+  chamar<Checkout>('/checkout', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ apelido, email, retorno }) });
 
 export const acesso = (ref: string): Promise<Acesso> => chamar<Acesso>(`/acesso?ref=${encodeURIComponent(ref)}`, { cache: 'no-store' });
 
+// ------------------------------------------------------------------ conta (quem pagou fica logado)
+const CONTA_BASE = CHAT_BASE.replace(/\/chat$/, '') + '/conta';
+export interface LoginPedido {
+  ok: boolean;
+  /** Só em desenvolvimento sem e-mail configurado: o link vem na resposta. */
+  link?: string;
+}
+/** Pede um link de acesso por e-mail (uso único, 30 min). A resposta não revela se o e-mail existe. */
+export const pedirLogin = (email: string, retorno: string): Promise<LoginPedido> =>
+  chamarUrl<LoginPedido>(`${CONTA_BASE}/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, retorno }) });
+/** Troca o token do link (?login=) por uma sessão. 410 = link inválido, usado ou vencido. */
+export const entrar = (token: string): Promise<Acesso> => chamarUrl<Acesso>(`${CONTA_BASE}/entrar?token=${encodeURIComponent(token)}`, { cache: 'no-store' });
+
 export interface Eu {
   apelido: string;
+  email?: string | null;
   expira_em: string;
 }
 /** Valida o token sem abrir WebSocket (200 ok · 401 inválido/expirado · outro = servidor fora). */
@@ -136,13 +157,15 @@ export interface Sessao {
   token: string;
   apelido: string;
   autor?: string;
+  email?: string | null;
 }
 
 export function lerSessao(): Sessao | null {
   try {
     const token = localStorage.getItem(CHAVE_TOKEN);
     const apelido = localStorage.getItem(CHAVE_APELIDO) ?? '';
-    return token ? { token, apelido } : null;
+    const email = localStorage.getItem(CHAVE_EMAIL);
+    return token ? { token, apelido, email } : null;
   } catch {
     return null;
   }
@@ -154,10 +177,12 @@ export function guardarSessao(s: Sessao | null): void {
       localStorage.removeItem(CHAVE_TOKEN);
       localStorage.removeItem(CHAVE_APELIDO);
       localStorage.removeItem('chat_autor');
+      // o e-mail fica: é só o que a pessoa digitou, e ajuda a entrar de novo
     } else {
       localStorage.setItem(CHAVE_TOKEN, s.token);
       localStorage.setItem(CHAVE_APELIDO, s.apelido);
       if (s.autor) localStorage.setItem('chat_autor', s.autor);
+      if (s.email) localStorage.setItem(CHAVE_EMAIL, s.email);
     }
   } catch {
     /* armazenamento indisponível (modo privado etc.) */

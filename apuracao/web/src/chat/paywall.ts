@@ -1,7 +1,7 @@
 // Paywall do chat: preço, o que inclui, apelido e botão de pagamento.
 
 import { el, fmtInt } from '../format';
-import { apelidoValido, ChatHttpError, checkout, normalizarApelido, ONLINE_MINIMO, type Estado } from './client';
+import { apelidoValido, ChatHttpError, checkout, CHAVE_EMAIL, EMAIL_RE, normalizarApelido, ONLINE_MINIMO, pedirLogin, type Estado } from './client';
 
 export type VariantePaywall = 'chat' | 'telao';
 
@@ -32,11 +32,48 @@ export function montarPaywall(opts: { aoCheckout: () => void }): Paywall {
   const erroApelido = el('span', { class: 'field-err', id: 'apelido-err', hidden: true });
 
   let apelidoInicial = '';
+  let emailInicial = '';
   try {
     apelidoInicial = localStorage.getItem('chat_apelido') ?? '';
+    emailInicial = localStorage.getItem(CHAVE_EMAIL) ?? '';
   } catch {
     /* sem armazenamento */
   }
+  // e-mail: cria a conta (quem paga fica logado e entra de novo em qualquer aparelho)
+  const erroEmail = el('span', { class: 'field-err', id: 'email-err', hidden: true });
+  const inputEmail = el('input', {
+    class: 'field',
+    id: 'chat-email',
+    type: 'email',
+    autocomplete: 'email',
+    inputmode: 'email',
+    maxlength: 254,
+    spellcheck: false,
+    placeholder: 'voce@exemplo.com',
+    'aria-describedby': 'email-hint email-err',
+    value: emailInicial,
+  });
+  const validarEmail = (mostrar: boolean): boolean => {
+    const v = inputEmail.value.trim();
+    let erro: string | null = null;
+    if (!v) erro = 'Informe seu e-mail para criar a conta.';
+    else if (!EMAIL_RE.test(v)) erro = 'Esse e-mail não parece válido.';
+    if (mostrar || inputEmail.dataset.tocado) {
+      erroEmail.hidden = !erro;
+      erroEmail.textContent = erro ?? '';
+      inputEmail.setAttribute('aria-invalid', erro ? 'true' : 'false');
+      inputEmail.classList.toggle('invalid', !!erro);
+    }
+    return !erro;
+  };
+  inputEmail.addEventListener('input', () => {
+    aviso(null);
+    validarEmail(false);
+  });
+  inputEmail.addEventListener('blur', () => {
+    inputEmail.dataset.tocado = '1';
+    validarEmail(false);
+  });
   const input = el('input', {
     class: 'field',
     id: 'chat-apelido',
@@ -87,15 +124,67 @@ export function montarPaywall(opts: { aoCheckout: () => void }): Paywall {
       el('span', { class: 'field-hint', id: 'apelido-hint', text: '2 a 24 caracteres: letras, números, espaço ou _' }),
       erroApelido,
     ),
+    el(
+      'div',
+      { class: 'field-wrap' },
+      el('label', { for: 'chat-email', text: 'Seu e-mail' }),
+      inputEmail,
+      el('span', { class: 'field-hint', id: 'email-hint', text: 'cria sua conta: você fica logado e entra de novo em qualquer aparelho' }),
+      erroEmail,
+    ),
     btn,
   );
+
+  // ---- já pagou? entrar com o e-mail (link de uso único)
+  const loginEmail = el('input', { class: 'field', type: 'email', autocomplete: 'email', inputmode: 'email', maxlength: 254, placeholder: 'o e-mail que você usou no pagamento', 'aria-label': 'E-mail da conta' });
+  const loginBtn = el('button', { class: 'btn btn-login', type: 'submit', text: 'Enviar link de acesso' });
+  const loginMsg = el('p', { class: 'pay-login-msg', role: 'status', hidden: true });
+  const loginForm = el('form', { class: 'pay-login-form', novalidate: true, hidden: true }, loginEmail, loginBtn, loginMsg);
+  const loginToggle = el('button', { class: 'btn-link pay-login-toggle', type: 'button', text: 'Já pagou? Entrar com o e-mail' });
+  loginToggle.addEventListener('click', () => {
+    loginForm.hidden = !loginForm.hidden;
+    if (!loginForm.hidden) {
+      if (!loginEmail.value && inputEmail.value) loginEmail.value = inputEmail.value;
+      loginEmail.focus();
+    }
+  });
+  loginForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const v = loginEmail.value.trim();
+    if (!EMAIL_RE.test(v)) {
+      loginMsg.hidden = false;
+      loginMsg.textContent = 'Esse e-mail não parece válido.';
+      return;
+    }
+    loginBtn.disabled = true;
+    loginMsg.hidden = false;
+    loginMsg.textContent = 'Enviando…';
+    try {
+      const retorno = new URL(location.href);
+      retorno.search = '';
+      retorno.hash = '';
+      const r = await pedirLogin(v, retorno.toString());
+      if (r.link) {
+        location.assign(r.link); // desenvolvimento sem e-mail configurado
+        return;
+      }
+      loginMsg.textContent = 'Se esse e-mail tem conta, enviamos um link de acesso. Ele vale por 30 minutos e abre em qualquer aparelho.';
+    } catch {
+      loginMsg.textContent = 'Não foi possível enviar agora. Tente de novo em instantes.';
+    } finally {
+      loginBtn.disabled = false;
+    }
+  });
 
   let enviando = false;
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     input.dataset.tocado = '1';
-    if (enviando || !validar(true)) {
-      input.focus();
+    inputEmail.dataset.tocado = '1';
+    const apelidoOk = validar(true);
+    const emailOk = validarEmail(true);
+    if (enviando || !apelidoOk || !emailOk) {
+      (apelidoOk ? inputEmail : input).focus();
       return;
     }
     enviando = true;
@@ -103,8 +192,10 @@ export function montarPaywall(opts: { aoCheckout: () => void }): Paywall {
     btnTxt.textContent = 'Abrindo pagamento…';
     aviso(null);
     const apelido = normalizarApelido(input.value);
+    const email = inputEmail.value.trim().toLowerCase();
     try {
       localStorage.setItem('chat_apelido', apelido);
+      localStorage.setItem(CHAVE_EMAIL, email);
     } catch {
       /* sem armazenamento */
     }
@@ -112,7 +203,7 @@ export function montarPaywall(opts: { aoCheckout: () => void }): Paywall {
       const retorno = new URL(location.href);
       retorno.search = '';
       retorno.hash = '';
-      const r = await checkout(apelido, retorno.toString());
+      const r = await checkout(apelido, email, retorno.toString());
       opts.aoCheckout();
       location.assign(r.url);
     } catch (err) {
@@ -146,6 +237,7 @@ export function montarPaywall(opts: { aoCheckout: () => void }): Paywall {
     ),
     form,
     avisoEl,
+    el('div', { class: 'pay-login' }, loginToggle, loginForm),
     onlineEl,
     el('p', { class: 'pay-legal', text: 'Pagamento processado pela Stripe. Mensagens passam por filtro de palavras e limite de ritmo.' }),
   );

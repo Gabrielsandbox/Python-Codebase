@@ -33,7 +33,7 @@ class Config:
     pagamento: str = "dev"  # dev | stripe
     preco_centavos: int = 500
     jwt_secret: str = JWT_SECRET_PADRAO
-    jwt_dias: int = 7
+    jwt_dias: int = 365  # quem paga fica logado (a conta vale para a plataforma depois)
     db_path: Path = RAIZ / "data" / "chat.sqlite"
     redis_url: str | None = None
     dados_base: str = "http://127.0.0.1:8000/dados"
@@ -44,6 +44,8 @@ class Config:
     msg_max: int = 280
     intervalo_msg_s: float = 2.0
     origens_cors: list[str] = field(default_factory=lambda: ["*"])
+    resend_api_key: str | None = None  # e-mail de login (Resend); sem ela, só loga o link
+    email_de: str = "Apuração ao Vivo <contato@apuracaoaovivo.com>"
 
     @classmethod
     def from_env(cls) -> Config:
@@ -52,7 +54,7 @@ class Config:
             pagamento=env("CHAT_PAGAMENTO", "dev"),
             preco_centavos=int(env("CHAT_PRECO_CENTAVOS", "500")),
             jwt_secret=env("CHAT_JWT_SECRET", JWT_SECRET_PADRAO),
-            jwt_dias=int(env("CHAT_JWT_DIAS", "7")),
+            jwt_dias=int(env("CHAT_JWT_DIAS", "365")),
             db_path=Path(env("CHAT_DB", str(RAIZ / "data" / "chat.sqlite"))),
             redis_url=env("CHAT_REDIS_URL") or None,
             dados_base=env("CHAT_DADOS_BASE", "http://127.0.0.1:8000/dados"),
@@ -62,4 +64,6 @@ class Config:
                 env("CHAT_BLOQUEIO", str(RAIZ / "data" / "ref" / "chat-bloqueio.txt"))
             ),
             origens_cors=[o for o in env("CHAT_CORS", "*").split(",") if o],
+            resend_api_key=env("RESEND_API_KEY") or None,
+            email_de=env("EMAIL_DE", "Apuração ao Vivo <contato@apuracaoaovivo.com>"),
         )
