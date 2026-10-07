@@ -35,7 +35,7 @@ erros = 0
 
 
 async def cliente(tok, i, envia):
-    global recebidas, erros
+    global erros  # noqa: PLW0603
     try:
         async with websockets.connect(
             f"ws://127.0.0.1:8011/chat/ws?token={tok}", max_queue=4096, open_timeout=30
@@ -61,7 +61,7 @@ async def cliente(tok, i, envia):
                     await ws.send(json.dumps({"tipo": "msg", "texto": repr(time.time())}))
                 await asyncio.sleep(1.0 / envia if envia else 1)
             t.cancel()
-    except Exception:
+    except Exception:  # noqa: BLE001 — qualquer falha conta como erro no teste de carga
         erros += 1
 
 
