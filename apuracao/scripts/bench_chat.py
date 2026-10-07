@@ -35,7 +35,7 @@ erros = 0
 
 
 async def cliente(tok, i, envia):
-    global erros  # noqa: PLW0603
+    global erros
     try:
         async with websockets.connect(
             f"ws://127.0.0.1:8011/chat/ws?token={tok}", max_queue=4096, open_timeout=30
