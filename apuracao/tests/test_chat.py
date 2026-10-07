@@ -4,7 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from chat import Config
-from chat.app import WS_NAO_AUTORIZADO, criar_app
+from chat.app import WS_NAO_AUTORIZADO, WS_PAGAMENTO, criar_app
 from chat.auth import ApelidoInvalido, emitir_token, normalizar_apelido, verificar_token
 from chat.auth import verificar_token as _vt
 from chat.hub import codigo_autor, frase_placar
@@ -313,3 +313,69 @@ def test_conta_e_login_por_email(cliente):
     assert c3["sub"] == c1["sub"] and r.json()["apelido"] == "Maria 2"
     # link é de uso único
     assert cliente.get("/conta/entrar", params={"token": tok}).status_code == 410
+
+
+def test_entrar_com_google(cliente, monkeypatch):
+    """Google cria a conta (sem pagamento), checkout logado vincula o pagamento, e a conta reentra paga."""
+    # sem GOOGLE_CLIENT_ID em dev: credencial "dev:<email>:<nome>"
+    r = cliente.post("/conta/google", json={"credential": "dev:ana@gmail.com:Ana Souza"})
+    assert r.status_code == 200, r.text
+    s1 = r.json()
+    assert s1["email"] == "ana@gmail.com" and s1["apelido"] == "Ana Souza" and s1["pago"] is False
+    # WS recusa quem ainda não pagou (4402), mesmo com token válido
+    from starlette.websockets import WebSocketDisconnect
+
+    with cliente.websocket_connect(f"/chat/ws?token={s1['token']}") as ws:
+        with pytest.raises(WebSocketDisconnect) as exc:
+            ws.receive_text()
+        assert exc.value.code == WS_PAGAMENTO
+    # checkout logado: sem e-mail no corpo, apelido novo
+    r = cliente.post(
+        "/chat/checkout",
+        json={"apelido": "Aninha", "retorno": "https://site.test/ap"},
+        headers={"Authorization": f"Bearer {s1['token']}"},
+    )
+    assert r.status_code == 200, r.text
+    r = cliente.get("/chat/acesso", params={"ref": r.json()["ref"]})
+    assert r.status_code == 200 and r.json()["pago"] is True and r.json()["apelido"] == "Aninha"
+    c = _vt("segredo-de-teste-com-mais-de-32-caracteres!", r.json()["token"])
+    assert c["sub"] == _vt("segredo-de-teste-com-mais-de-32-caracteres!", s1["token"])["sub"]
+    # entrar de novo com o Google: mesma conta, já paga, apelido mantido
+    r = cliente.post("/conta/google", json={"credential": "dev:ana@gmail.com:Ana Souza"})
+    assert r.json()["pago"] is True and r.json()["apelido"] == "Aninha"
+    assert cliente.get("/chat/estado").json()["contas"] == 1
+    # /chat/eu diz pago
+    eu = cliente.get("/chat/eu", headers={"Authorization": f"Bearer {r.json()['token']}"}).json()
+    assert eu["pago"] is True and eu["email"] == "ana@gmail.com"
+    # sem conta e sem e-mail: 422
+    r = cliente.post("/chat/checkout", json={"apelido": "Zé", "retorno": "https://x.test/"})
+    assert r.status_code == 422
+
+
+def test_google_com_client_id_verifica_token(tmp_path, monkeypatch):
+    """Com GOOGLE_CLIENT_ID, a credencial passa pela verificação (aqui simulada)."""
+    import chat.app as app_mod
+
+    cfg = Config(
+        pagamento="dev",
+        jwt_secret="segredo-de-teste-com-mais-de-32-caracteres!",
+        db_path=tmp_path / "c.sqlite",
+        dados_base=None,
+        intervalo_msg_s=0.0,
+        google_client_id="123.apps.googleusercontent.com",
+    )
+    chamadas = []
+
+    def fake(credential, client_id):
+        chamadas.append((credential, client_id))
+        if credential == "ruim" or credential.startswith("dev:"):
+            raise app_mod.GoogleInvalido("credencial do Google inválida")
+        return {"sub": "g-1", "email": "bia@gmail.com", "nome": "Bia", "foto": None}
+
+    monkeypatch.setattr(app_mod, "verificar_google", fake)
+    with TestClient(criar_app(cfg)) as c:
+        # com client id, o atalho "dev:" não existe: a credencial vai para a verificação e cai
+        assert c.post("/conta/google", json={"credential": "dev:x@y.z:X"}).status_code == 401
+        r = c.post("/conta/google", json={"credential": "token-bom"})
+        assert r.status_code == 200 and r.json()["email"] == "bia@gmail.com"
+        assert chamadas[-1] == ("token-bom", "123.apps.googleusercontent.com")

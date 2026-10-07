@@ -31,6 +31,8 @@ export interface SalaOpts {
   aoPresenca: (online: number) => void;
   aoConexao: (estado: Conexao) => void;
   aoExpirar: () => void;
+  /** Conta logada sem pagamento (4402): volta ao paywall já logado. */
+  aoSemPagamento: () => void;
   /** Usuário pediu para sair (apaga a sessão local). */
   aoSair: () => void;
   /** Usuário aceitou a sugestão de sala (chip) ou a sala foi recusada pelo servidor. */
@@ -342,6 +344,10 @@ export function montarSala(opts: SalaOpts): Sala {
           onExpirado: () => {
             socket = null;
             opts.aoExpirar();
+          },
+          onSemPagamento: () => {
+            socket = null;
+            opts.aoSemPagamento();
           },
           onSalaInvalida: () => {
             socket = null;

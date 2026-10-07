@@ -45,6 +45,7 @@ class Config:
     intervalo_msg_s: float = 2.0
     origens_cors: list[str] = field(default_factory=lambda: ["*"])
     resend_api_key: str | None = None  # e-mail de login (Resend); sem ela, só loga o link
+    google_client_id: str | None = None  # Entrar com Google (OAuth client id, tipo Web)
     email_de: str = "Apuração ao Vivo <contato@apuracaoaovivo.com>"
 
     @classmethod
@@ -65,5 +66,6 @@ class Config:
             ),
             origens_cors=[o for o in env("CHAT_CORS", "*").split(",") if o],
             resend_api_key=env("RESEND_API_KEY") or None,
+            google_client_id=env("GOOGLE_CLIENT_ID") or None,
             email_de=env("EMAIL_DE", "Apuração ao Vivo <contato@apuracaoaovivo.com>"),
         )

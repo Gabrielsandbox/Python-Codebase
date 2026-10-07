@@ -72,6 +72,13 @@ class DB:
             for col in ("email", "usuario_id"):  # migração: contas
                 if col not in cols:
                     self._con.execute(f"ALTER TABLE pagamentos ADD COLUMN {col} TEXT")
+            cols = {r[1] for r in self._con.execute("PRAGMA table_info(usuarios)")}
+            for col in ("google_sub", "nome", "foto"):  # migração: Entrar com Google
+                if col not in cols:
+                    self._con.execute(f"ALTER TABLE usuarios ADD COLUMN {col} TEXT")
+            self._con.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS ix_usuarios_google ON usuarios(google_sub)"
+            )
             self._con.commit()
 
     # ---------------------------------------------------------------- pagamentos
@@ -83,12 +90,13 @@ class DB:
         valor: int,
         provedor_id: str | None = None,
         email: str | None = None,
+        usuario_id: str | None = None,
     ) -> None:
         with self._lock:
             self._con.execute(
                 "INSERT INTO pagamentos(ref, provedor, provedor_id, apelido, valor_centavos, status,"
-                " criado_em, email) VALUES (?,?,?,?,?,'pendente',?,?)",
-                (ref, provedor, provedor_id, apelido, valor, agora(), email),
+                " criado_em, email, usuario_id) VALUES (?,?,?,?,?,'pendente',?,?,?)",
+                (ref, provedor, provedor_id, apelido, valor, agora(), email, usuario_id),
             )
             self._con.commit()
 
@@ -121,6 +129,34 @@ class DB:
     def usuario(self, id_: str) -> sqlite3.Row | None:
         with self._lock:
             return self._con.execute("SELECT * FROM usuarios WHERE id=?", (id_,)).fetchone()
+
+    def usuario_por_google(self, google_sub: str) -> sqlite3.Row | None:
+        with self._lock:
+            return self._con.execute(
+                "SELECT * FROM usuarios WHERE google_sub=?", (google_sub,)
+            ).fetchone()
+
+    def vincular_google(
+        self, id_: str, google_sub: str, nome: str | None, foto: str | None
+    ) -> None:
+        with self._lock:
+            self._con.execute(
+                "UPDATE usuarios SET google_sub=?, nome=COALESCE(?, nome), foto=COALESCE(?, foto),"
+                " ultimo_acesso=? WHERE id=?",
+                (google_sub, nome or None, foto or None, agora(), id_),
+            )
+            self._con.commit()
+
+    def conta_pagou(self, sub: str) -> bool:
+        """A identidade do token (id da conta, ou ref de pagamento antigo) tem pagamento pago?"""
+        with self._lock:
+            return (
+                self._con.execute(
+                    "SELECT 1 FROM pagamentos WHERE status='pago' AND (usuario_id=? OR ref=?) LIMIT 1",
+                    (sub, sub),
+                ).fetchone()
+                is not None
+            )
 
     def usuario_por_email(self, email: str) -> sqlite3.Row | None:
         with self._lock:

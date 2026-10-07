@@ -124,6 +124,19 @@ Source = este repositório, **Root Directory = `apuracao`**, Builder = Dockerfil
   provedor é o plano B do runbook).
 - Health: `GET /chat/estado`, `GET /alertas/config`, `GET /health`.
 
+## 3b. Entrar com Google (conta)
+
+1. Google Cloud Console → projeto novo "Apuração ao Vivo" → **APIs e serviços → Tela de permissão
+   OAuth**: tipo Externo, nome do app, e-mail de suporte, domínio autorizado `apuracaoaovivo.com`,
+   escopos `email`/`profile`/`openid`, e **publicar** (em "teste" só 100 contas entram).
+2. **Credenciais → Criar credenciais → ID do cliente OAuth → Aplicativo da Web**. Origens JavaScript
+   autorizadas: `https://apuracaoaovivo.com`, `https://www.apuracaoaovivo.com`,
+   `http://localhost:5173`. Sem URI de redirecionamento. Copie o **ID do cliente**
+   (`…apps.googleusercontent.com`); o segredo não é usado.
+3. Railway → serviço `chat` → `GOOGLE_CLIENT_ID=<id>`.
+4. Site: `apuracao/web/.env.production` → `VITE_GOOGLE_CLIENT_ID=<id>` (é público, pode ir no
+   repositório) e novo deploy.
+
 ## 4. Stripe (cobrança do chat + telão)
 
 1. Chaves: Developers → API keys → `sk_live_...` em `STRIPE_SECRET_KEY`.
