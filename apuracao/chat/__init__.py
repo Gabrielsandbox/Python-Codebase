@@ -11,13 +11,14 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 RAIZ = Path(__file__).resolve().parent.parent
+JWT_SECRET_PADRAO = "troque-este-segredo-em-producao"
 
 
 @dataclass(slots=True)
 class Config:
     pagamento: str = "dev"  # dev | stripe
     preco_centavos: int = 500
-    jwt_secret: str = "troque-este-segredo-em-producao"
+    jwt_secret: str = JWT_SECRET_PADRAO
     jwt_dias: int = 7
     db_path: Path = RAIZ / "data" / "chat.sqlite"
     redis_url: str | None = None
@@ -36,7 +37,7 @@ class Config:
         return cls(
             pagamento=env("CHAT_PAGAMENTO", "dev"),
             preco_centavos=int(env("CHAT_PRECO_CENTAVOS", "500")),
-            jwt_secret=env("CHAT_JWT_SECRET", cls.jwt_secret),
+            jwt_secret=env("CHAT_JWT_SECRET", JWT_SECRET_PADRAO),
             jwt_dias=int(env("CHAT_JWT_DIAS", "7")),
             db_path=Path(env("CHAT_DB", str(RAIZ / "data" / "chat.sqlite"))),
             redis_url=env("CHAT_REDIS_URL") or None,

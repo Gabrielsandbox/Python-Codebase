@@ -89,11 +89,13 @@ class Hub:
     async def entrar(self, ws: WebSocket, claims: dict) -> None:
         # Envia histórico antes de registrar a conexão, para o loop de presença não
         # entregar um frame antes do "historico".
-        historico = await self.ultimas()
+        historico = await self.ultimas(claims.get("sub"))
         self._conexoes[ws] = claims
         await self._atualizar_presenca()
-        await ws.send_bytes(orjson.dumps({"tipo": "historico", "mensagens": historico}))
-        await ws.send_bytes(orjson.dumps({"tipo": "presenca", "online": await self.online()}))
+        await ws.send_text(orjson.dumps({"tipo": "historico", "mensagens": historico}).decode())
+        await ws.send_text(
+            orjson.dumps({"tipo": "presenca", "online": await self.online()}).decode()
+        )
 
     def sair(self, ws: WebSocket) -> None:
         if self._conexoes.pop(ws, None) is not None and self._redis is not None:
@@ -145,28 +147,30 @@ class Hub:
             self._hist.append(msg)
         sub = msg.get("sub")
         publico = {k: v for k, v in msg.items() if k != "sub"}
-        raw_outros = (
-            orjson.dumps({**publico, "eu": False})
-            if msg["tipo"] == "msg"
-            else orjson.dumps(publico)
-        )
-        raw_eu = orjson.dumps({**publico, "eu": True}) if msg["tipo"] == "msg" else raw_outros
+        if msg["tipo"] == "msg":
+            raw_outros = orjson.dumps({**publico, "eu": False}).decode()
+            raw_eu = orjson.dumps({**publico, "eu": True}).decode()
+        else:
+            raw_outros = raw_eu = orjson.dumps(publico).decode()
         mortas: list[WebSocket] = []
         for ws, claims in list(self._conexoes.items()):
             try:
-                await ws.send_bytes(raw_eu if sub and claims.get("sub") == sub else raw_outros)
+                await ws.send_text(raw_eu if sub and claims.get("sub") == sub else raw_outros)
             except Exception:  # noqa: BLE001 — conexão fechada
                 mortas.append(ws)
         for ws in mortas:
             self.sair(ws)
 
-    async def ultimas(self) -> list[dict]:
+    async def ultimas(self, sub: str | None = None) -> list[dict]:
         if self._redis is not None:
             raws = await self._redis.lrange(HIST, 0, self.historico_n - 1)
             itens = [orjson.loads(r) for r in reversed(raws)]
         else:
             itens = list(self._hist)
-        return [{k: v for k, v in m.items() if k != "sub"} for m in itens]
+        return [
+            {**{k: v for k, v in m.items() if k != "sub"}, "eu": bool(sub) and m.get("sub") == sub}
+            for m in itens
+        ]
 
     # ------------------------------------------------------------------ presença
     async def online(self) -> int:
@@ -187,10 +191,10 @@ class Hub:
             try:
                 await self._atualizar_presenca()
                 n = await self.online()
-                raw = orjson.dumps({"tipo": "presenca", "online": n})
+                raw = orjson.dumps({"tipo": "presenca", "online": n}).decode()
                 for ws in list(self._conexoes):
                     with contextlib.suppress(Exception):
-                        await ws.send_bytes(raw)
+                        await ws.send_text(raw)
             except Exception:
                 log.exception("presença")
             await asyncio.sleep(5)

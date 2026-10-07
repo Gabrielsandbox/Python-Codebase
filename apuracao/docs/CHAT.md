@@ -20,9 +20,13 @@ Resposta: `{ "url": "https://checkout.stripe.com/…", "ref": "cs_…" }`
 ### `GET /chat/acesso?ref=<ref>`
 Resposta `200`: `{ "token": "<jwt>", "apelido": "Maria", "expira_em": "2026-10-27T…" }`
 Resposta `402`: `{ "detail": "pagamento pendente" }` (PIX ainda não compensou; o cliente pode
-tentar de novo a cada 3 s). `404` ref desconhecida.
+tentar de novo a cada 3 s). `404` ref desconhecida. `410` sessão de pagamento expirada (recomeçar).
 
 O cliente guarda `token` em `localStorage` (`chat_token`) e `apelido`.
+
+### `GET /chat/eu`
+Cabeçalho `Authorization: Bearer <jwt>`. `200 { "apelido", "expira_em" }` ou `401`. Permite ao
+cliente distinguir "token inválido" de "servidor fora" sem abrir WebSocket.
 
 ### `GET /chat/estado`
 `{ "online": 1234, "aberto": true, "preco_centavos": 500, "mensagens_total": 98765 }`
@@ -34,7 +38,8 @@ para PIX). Marca o pagamento como `pago`.
 
 ## WebSocket `GET /chat/ws?token=<jwt>`
 
-Fecha com código `4401` se o token for inválido/expirado, `4429` se excedeu o limite.
+Fecha com código `4401` (após o `accept`, para o navegador ver o código) se o token for
+inválido/expirado, `4429` se excedeu o limite. Todos os frames são **texto** JSON.
 
 Mensagens **servidor → cliente** (JSON, uma por frame):
 ```json
@@ -42,8 +47,10 @@ Mensagens **servidor → cliente** (JSON, uma por frame):
 { "tipo": "msg", "id": "01J…", "apelido": "Maria", "texto": "Vai virar!", "t": "2026-10-25T19:02:11-03:00", "eu": false }
 { "tipo": "sistema", "texto": "Flavio Bolsonaro 50,4% × Lula 49,6% — 71,2% das seções", "t": "…" }
 { "tipo": "presenca", "online": 1234 }
-{ "tipo": "erro", "codigo": "rate_limit" | "texto_invalido" | "bloqueado", "texto": "…" }
+{ "tipo": "erro", "codigo": "rate_limit" | "repetida" | "texto_invalido" | "bloqueado", "texto": "…" }
+{ "tipo": "pong" }
 ```
+Os itens de `historico` também trazem `eu` (true nas mensagens do próprio usuário).
 
 Mensagens **cliente → servidor**:
 ```json

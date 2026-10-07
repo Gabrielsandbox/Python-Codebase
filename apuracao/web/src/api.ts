@@ -62,6 +62,21 @@ interface Tarefa {
   timer: number | null;
   emVoo: boolean;
   ultimoTexto: string | null;
+  proximo: number | null; // instante (ms) da próxima verificação agendada
+}
+
+/** Resumo de uma verificação concluída (com ou sem mudança, com ou sem erro). */
+export interface Ciclo {
+  chave: Chave;
+  /** Instante (ms) em que a verificação terminou. */
+  em: number;
+  /** Instante (ms) da próxima verificação agendada (null se o polling está pausado). */
+  proximo: number | null;
+  /** O conteúdo mudou em relação à verificação anterior? */
+  mudou: boolean;
+  /** A requisição teve sucesso? */
+  ok: boolean;
+  intervalo: number;
 }
 
 /**
@@ -72,6 +87,7 @@ export class Poller {
   private tarefas: Tarefa[] = [];
   private ativo = true;
   private onErro?: (e: unknown, chave: Chave) => void;
+  private ouvintesCiclo = new Set<(c: Ciclo) => void>();
 
   constructor(
     private onDados: <K extends Chave>(chave: K, dados: Payloads[K]) => void,
@@ -86,9 +102,24 @@ export class Poller {
   }
 
   registrar(chave: Chave, url: string, intervalo = INTERVALOS[chave]): void {
-    const t: Tarefa = { chave, url, intervalo, timer: null, emVoo: false, ultimoTexto: null };
+    const t: Tarefa = { chave, url, intervalo, timer: null, emVoo: false, ultimoTexto: null, proximo: null };
     this.tarefas.push(t);
     void this.executar(t);
+  }
+
+  /** Avisa ao fim de cada verificação (para indicadores de "ao vivo"). Devolve o cancelamento. */
+  onCiclo(cb: (c: Ciclo) => void): () => void {
+    this.ouvintesCiclo.add(cb);
+    return () => this.ouvintesCiclo.delete(cb);
+  }
+
+  /** Instante (ms) da próxima verificação de `chave`, ou null se desconhecido/pausado. */
+  proximo(chave: Chave): number | null {
+    return this.tarefas.find((t) => t.chave === chave)?.proximo ?? null;
+  }
+
+  get pausado(): boolean {
+    return !this.ativo;
   }
 
   /** Força uma rodada imediata de todas as tarefas. */
@@ -107,6 +138,7 @@ export class Poller {
     for (const t of this.tarefas) {
       if (t.timer) clearTimeout(t.timer);
       t.timer = null;
+      t.proximo = null;
     }
   }
 
@@ -117,19 +149,26 @@ export class Poller {
   }
 
   private agendar(t: Tarefa): void {
-    if (!this.ativo) return;
     if (t.timer) clearTimeout(t.timer);
+    t.timer = null;
+    t.proximo = null;
+    if (!this.ativo) return;
+    t.proximo = Date.now() + t.intervalo;
     t.timer = window.setTimeout(() => void this.executar(t), t.intervalo);
   }
 
   private async executar(t: Tarefa): Promise<void> {
     if (t.emVoo) return;
     t.emVoo = true;
+    let mudou = false;
+    let ok = false;
     try {
       const r = await fetch(t.url, { cache: 'no-cache', headers: { Accept: 'application/json' } });
       if (!r.ok) throw new HttpError(r.status, t.url);
       const texto = await r.text();
+      ok = true;
       if (texto !== t.ultimoTexto) {
+        mudou = t.ultimoTexto !== null; // a 1ª carga não conta como "novos dados"
         t.ultimoTexto = texto;
         this.onDados(t.chave, JSON.parse(texto));
       }
@@ -138,6 +177,8 @@ export class Poller {
     } finally {
       t.emVoo = false;
       this.agendar(t);
+      const c: Ciclo = { chave: t.chave, em: Date.now(), proximo: t.proximo, mudou, ok, intervalo: t.intervalo };
+      this.ouvintesCiclo.forEach((cb) => cb(c));
     }
   }
 }

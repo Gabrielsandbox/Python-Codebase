@@ -66,12 +66,11 @@ def test_estado_e_checkout(cliente):
 def test_ws_recusa_token_invalido(cliente):
     from starlette.websockets import WebSocketDisconnect
 
-    with (
-        pytest.raises(WebSocketDisconnect) as exc,
-        cliente.websocket_connect("/chat/ws?token=lixo"),
-    ):
-        pass
-    assert exc.value.code == WS_NAO_AUTORIZADO
+    # o servidor aceita e fecha com 4401 (assim o navegador enxerga o código)
+    with cliente.websocket_connect("/chat/ws?token=lixo") as ws:
+        with pytest.raises(WebSocketDisconnect) as exc:
+            ws.receive_text()
+        assert exc.value.code == WS_NAO_AUTORIZADO
 
 
 def test_ws_fluxo_completo(cliente):
@@ -81,15 +80,15 @@ def test_ws_fluxo_completo(cliente):
         cliente.websocket_connect(f"/chat/ws?token={t1}") as a,
         cliente.websocket_connect(f"/chat/ws?token={t2}") as b,
     ):
-        hist_a = json.loads(a.receive_bytes())
+        hist_a = json.loads(a.receive_text())
         assert hist_a["tipo"] == "historico" and hist_a["mensagens"] == []
-        assert json.loads(a.receive_bytes())["tipo"] == "presenca"
-        json.loads(b.receive_bytes())
-        json.loads(b.receive_bytes())
+        assert json.loads(a.receive_text())["tipo"] == "presenca"
+        json.loads(b.receive_text())
+        json.loads(b.receive_text())
 
         a.send_text(json.dumps({"tipo": "msg", "texto": "  Vai virar!  veja www.spam.com agora "}))
-        ma = json.loads(a.receive_bytes())
-        mb = json.loads(b.receive_bytes())
+        ma = json.loads(a.receive_text())
+        mb = json.loads(b.receive_text())
         assert ma["tipo"] == "msg" and ma["eu"] is True and mb["eu"] is False
         assert (
             ma["texto"] == "Vai virar! veja agora" and ma["apelido"] == "Maria" and "sub" not in ma
@@ -97,23 +96,33 @@ def test_ws_fluxo_completo(cliente):
         assert ma["id"] == mb["id"]
 
         a.send_text(json.dumps({"tipo": "msg", "texto": "ganhe no pix premiado"}))
-        err = json.loads(a.receive_bytes())
+        err = json.loads(a.receive_text())
         assert err["tipo"] == "erro" and err["codigo"] == "bloqueado"
 
         a.send_text(json.dumps({"tipo": "msg", "texto": "Vai virar! veja agora"}))  # repetida
-        assert json.loads(a.receive_bytes())["codigo"] == "repetida"
+        assert json.loads(a.receive_text())["codigo"] == "repetida"
 
         a.send_text(json.dumps({"tipo": "msg", "texto": "x" * 300}))
-        assert json.loads(a.receive_bytes())["codigo"] == "texto_invalido"
+        assert json.loads(a.receive_text())["codigo"] == "texto_invalido"
 
         a.send_text(json.dumps({"tipo": "ping"}))
-        assert json.loads(a.receive_bytes())["tipo"] == "pong"
+        assert json.loads(a.receive_text())["tipo"] == "pong"
 
     # histórico persiste (sqlite) e reaparece para quem entra depois
     t3, _ = comprar(cliente, "Ana")
     with cliente.websocket_connect(f"/chat/ws?token={t3}") as c:
-        hist = json.loads(c.receive_bytes())
+        hist = json.loads(c.receive_text())
         assert [m["texto"] for m in hist["mensagens"]] == ["Vai virar! veja agora"]
+        assert hist["mensagens"][0]["eu"] is False
+    with cliente.websocket_connect(f"/chat/ws?token={t1}") as c:
+        assert (
+            json.loads(c.receive_text())["mensagens"][0]["eu"] is True
+        )  # histórico marca as minhas
+    assert (
+        cliente.get("/chat/eu", headers={"Authorization": f"Bearer {t1}"}).json()["apelido"]
+        == "Maria"
+    )
+    assert cliente.get("/chat/eu", headers={"Authorization": "Bearer x"}).status_code == 401
     assert cliente.get("/chat/estado").json()["mensagens_total"] == 1
 
 
@@ -150,3 +159,14 @@ def test_frase_placar():
     )
     br["definido"], br["vencedor"] = True, "1"
     assert frase_placar(meta, br).startswith("🏁 Flavio Bolsonaro eleito. ")
+
+
+def test_config_from_env_segredo_padrao(monkeypatch):
+    from chat import JWT_SECRET_PADRAO
+
+    monkeypatch.delenv("CHAT_JWT_SECRET", raising=False)
+    assert Config.from_env().jwt_secret == JWT_SECRET_PADRAO
+    monkeypatch.setenv("CHAT_PAGAMENTO", "stripe")
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test_x")
+    with pytest.raises(RuntimeError):
+        criar_app(Config.from_env())

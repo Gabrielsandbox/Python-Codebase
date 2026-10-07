@@ -13,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-from . import Config
+from . import JWT_SECRET_PADRAO, Config
 from .auth import ApelidoInvalido, emitir_token, normalizar_apelido, novo_ref, verificar_token
 from .db import DB
 from .hub import Hub
@@ -40,7 +40,7 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
         allow_methods=["GET", "POST"],
         allow_headers=["*"],
     )
-    if cfg.pagamento != "dev" and cfg.jwt_secret == Config.jwt_secret:
+    if cfg.pagamento != "dev" and cfg.jwt_secret == JWT_SECRET_PADRAO:
         raise RuntimeError("Defina CHAT_JWT_SECRET (32+ caracteres) fora do modo dev")
     db = DB(cfg.db_path)
     provedor = criar_provedor(cfg.pagamento, stripe_secret_key=cfg.stripe_secret_key)
@@ -105,6 +105,18 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
             {"token": token, "apelido": pg["apelido"], "expira_em": exp.isoformat()}
         )
 
+    @app.get("/chat/eu")
+    def eu(request: Request) -> dict[str, Any]:
+        """Valida o token (``Authorization: Bearer``) sem abrir WebSocket."""
+        auth = request.headers.get("authorization", "")
+        claims = verificar_token(cfg.jwt_secret, auth.removeprefix("Bearer ").strip())
+        if claims is None or db.bloqueado(claims["sub"]):
+            raise HTTPException(401, "token inválido ou expirado")
+        return {
+            "apelido": claims["apelido"],
+            "expira_em": datetime.fromtimestamp(claims["exp"], tz=UTC).isoformat(),
+        }
+
     @app.post("/chat/webhook/stripe")
     async def webhook_stripe(request: Request) -> dict[str, Any]:
         if not isinstance(provedor, ProvedorStripe) or not cfg.stripe_webhook_secret:
@@ -128,12 +140,12 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
     # ------------------------------------------------------------------ WebSocket
     @app.websocket("/chat/ws")
     async def ws_chat(ws: WebSocket, token: str = Query(default="")) -> None:
+        await ws.accept()  # antes do close, senão o navegador vê 1006 em vez de 4401
         claims = verificar_token(cfg.jwt_secret, token)
         if claims is None or db.bloqueado(claims["sub"]):
             await ws.close(code=WS_NAO_AUTORIZADO)
             return
         exp = datetime.fromtimestamp(claims["exp"], tz=UTC)
-        await ws.accept()
         await hub.entrar(ws, claims)
         sub, apelido = claims["sub"], claims["apelido"]
         erros_seguidos = 0
@@ -149,7 +161,7 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
                     continue
                 tipo = dado.get("tipo")
                 if tipo == "ping":
-                    await ws.send_bytes(orjson.dumps({"tipo": "pong"}))
+                    await ws.send_text('{"tipo":"pong"}')
                     continue
                 if tipo != "msg":
                     continue
@@ -187,7 +199,7 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
 
 
 async def _erro(ws: WebSocket, codigo: str, texto: str) -> None:
-    await ws.send_bytes(orjson.dumps({"tipo": "erro", "codigo": codigo, "texto": texto}))
+    await ws.send_text(orjson.dumps({"tipo": "erro", "codigo": codigo, "texto": texto}).decode())
 
 
 app = criar_app()

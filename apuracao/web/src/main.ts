@@ -10,6 +10,7 @@ import { montarSecaoMapa } from './ui/secaoMapa';
 import { montarTotais } from './ui/totais';
 import { montarLinha } from './ui/linha';
 import { montarTabela } from './ui/tabela';
+import { montarChat } from './chat';
 
 const $ = (id: string) => document.getElementById(id)!;
 
@@ -41,24 +42,7 @@ async function iniciar(): Promise<void> {
   store.setRef(refUfs, null);
   store.setMeta(meta);
 
-  // 2. interface
-  montarCabecalho($('topbar'), store);
-  montarPlacar($('hero'), store);
-  const secao = montarSecaoMapa($('mapa'), store);
-  montarTotais($('totais'), store);
-  montarLinha($('linha'), store);
-  montarTabela(
-    $('tabela'),
-    store,
-    (sigla) => {
-      store.selecionarUf(sigla);
-      $('mapa').scrollIntoView({ behavior: 'smooth', block: 'start' });
-    },
-    (sigla) => secao.mapa.realcarUf(sigla),
-  );
-  $('app').setAttribute('aria-busy', 'false');
-
-  // 3. polling
+  // 2. polling: criado antes da interface para o cabeçalho acompanhar os ciclos
   let errosSeguidos = 0;
   const poller = new Poller(
     <K extends Chave>(chave: K, dados: Payloads[K]) => {
@@ -87,12 +71,32 @@ async function iniciar(): Promise<void> {
       if (++errosSeguidos >= 3) mostrarErro('Sem conexão com os dados da apuração. Tentando novamente…');
     },
   );
+
+  // 3. interface
+  montarCabecalho($('topbar'), store, poller);
+  montarChat($('chat'));
+  montarPlacar($('hero'), store);
+  const secao = montarSecaoMapa($('mapa'), store);
+  montarTotais($('totais'), store);
+  montarLinha($('linha'), store);
+  montarTabela(
+    $('tabela'),
+    store,
+    (sigla) => {
+      store.selecionarUf(sigla);
+      $('mapa').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    },
+    (sigla) => secao.mapa.realcarUf(sigla),
+  );
+  $('app').setAttribute('aria-busy', 'false');
+
+  // 4. polling
   poller.registrar('br', u.br);
   poller.registrar('uf', u.uf);
   poller.registrar('status', u.status);
   poller.registrar('timeline', u.timeline);
 
-  // 4. geometria: estados primeiro (pequeno), municípios + referência em segundo plano
+  // 5. geometria: estados primeiro (pequeno), municípios + referência em segundo plano
   secao.mostrarCarregando('Carregando mapa…');
   const topoUf = await getJson<Topology>('/geo/br-uf.topo.json');
   secao.mapa.setGeoUf(topoUf);
