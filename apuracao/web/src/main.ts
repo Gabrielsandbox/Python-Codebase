@@ -13,6 +13,8 @@ import { montarTabela } from './ui/tabela';
 import { montarChat } from './chat';
 import { montarAlertas } from './alertas';
 import { montarRecursos } from './recursos';
+import { montarAguardando } from './ui/aguardando';
+import type { Ativo } from './types';
 
 // Base dos arquivos estáticos (geo/ref): '/' normalmente, './' em builds relativos (--base ./).
 const ESTATICO: string = import.meta.env.BASE_URL;
@@ -42,10 +44,21 @@ async function iniciar(): Promise<void> {
   montarRodape();
 
   // 1. descobre o snapshot ativo e carrega meta + referências em paralelo
-  const { prefixo } = await descobrirAtivo();
+  const { ativo, prefixo } = await descobrirAtivo();
   const u = urls(prefixo);
-  const [meta, refUfs] = await Promise.all([getJson<Meta>(u.meta), getJson<RefUfs>(`${ESTATICO}ref/ufs.json`).catch(() => ({}) as RefUfs)]);
+  const [meta, refUfs] = await Promise.all([
+    // meta.json só existe depois do primeiro boletim do TSE: 404 = apuração ainda não começou
+    getJson<Meta>(u.meta).catch((e: unknown) => {
+      if (e instanceof HttpError && e.status === 404) return null;
+      throw e;
+    }),
+    getJson<RefUfs>(`${ESTATICO}ref/ufs.json`).catch(() => ({}) as RefUfs),
+  ]);
   store.setRef(refUfs, null);
+  if (!meta) {
+    modoAguardando(store, ativo, u.status);
+    return;
+  }
   store.setMeta(meta);
   if ((meta as Meta & { simulacao?: boolean }).simulacao) {
     // ensaio geral (apuracao simular): deixa claro que nada aqui é resultado real
@@ -141,6 +154,53 @@ async function iniciar(): Promise<void> {
       console.warn('malha municipal indisponível', e);
     }
   })();
+}
+
+/**
+ * Antes do primeiro boletim: cabeçalho com indicador ao vivo, alertas e chat funcionando, e um
+ * cartão explicando o que vem. A cada 30 s confere se meta.json apareceu; quando aparecer,
+ * recarrega a página e entra no modo normal.
+ */
+function modoAguardando(store: Store, ativo: Ativo, urlStatus: string): void {
+  const INTERVALO = 30_000;
+  let errosSeguidos = 0;
+  const poller = new Poller(
+    (chave, dados) => {
+      if (chave !== 'status') return;
+      errosSeguidos = 0;
+      mostrarErro(null);
+      store.setStatus(dados as Payloads['status']);
+      card.atualizar(store.status, true);
+    },
+    (e) => {
+      console.warn('falha ao atualizar status', e);
+      card.atualizar(store.status, false);
+      if (++errosSeguidos >= 3) mostrarErro('Sem conexão com os dados da apuração. Tentando novamente…');
+    },
+  );
+  montarCabecalho($('topbar'), store, poller);
+  montarAlertas($('alertas'));
+  montarChat($('chat'), store);
+  const card = montarAguardando($('hero'), ativo);
+  $('app').setAttribute('aria-busy', 'false');
+  poller.registrar('status', urlStatus, INTERVALO);
+
+  let conferindo = false;
+  const conferir = async () => {
+    if (conferindo || document.visibilityState === 'hidden') return;
+    conferindo = true;
+    try {
+      const { prefixo } = await descobrirAtivo();
+      await getJson<Meta>(urls(prefixo).meta);
+      location.reload(); // meta.json existe: a apuração começou
+    } catch {
+      /* ainda não começou (404) ou sem rede: tenta de novo no próximo ciclo */
+    } finally {
+      conferindo = false;
+    }
+  };
+  setInterval(() => void conferir(), INTERVALO);
+  document.addEventListener('visibilitychange', () => void conferir());
 }
 
 iniciar().catch((e) => {

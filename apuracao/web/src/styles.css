@@ -2607,3 +2607,45 @@ html[data-chat-layout="sheet"] .pay-legal {
 .chat-sala[data-conexao="conectando"] .chat-compose {
   opacity: 0.85;
 }
+
+/* Estado "aguardando o início da apuração" (antes do primeiro boletim do TSE) */
+.aguardando {
+  padding: 28px;
+  display: grid;
+  gap: 12px;
+}
+.aguardando h1 {
+  margin: 0;
+  font-size: clamp(26px, 4vw, 40px);
+  line-height: 1.1;
+  letter-spacing: -0.01em;
+}
+.aguardando-quando {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+.aguardando-desc,
+.aguardando-lista {
+  margin: 0;
+  color: var(--muted);
+  max-width: 70ch;
+}
+.aguardando-lista {
+  padding-left: 20px;
+  display: grid;
+  gap: 4px;
+}
+.aguardando-acoes {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+.aguardando-ind {
+  margin: 6px 0 0;
+}
+.aguardando-ind .secs {
+  min-width: 0;
+}
