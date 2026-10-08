@@ -379,3 +379,35 @@ def test_google_com_client_id_verifica_token(tmp_path, monkeypatch):
         r = c.post("/conta/google", json={"credential": "token-bom"})
         assert r.status_code == 200 and r.json()["email"] == "bia@gmail.com"
         assert chamadas[-1] == ("token-bom", "123.apps.googleusercontent.com")
+
+
+def test_lista_de_espera(tmp_path):
+    from chat.espera import WhatsAppInvalido, normalizar_whatsapp
+
+    assert normalizar_whatsapp("(11) 99999-1234") == "+5511999991234"
+    assert normalizar_whatsapp("+55 21 98765 4321") == "+5521987654321"
+    assert normalizar_whatsapp("11 8765 4321") == "+5511987654321"  # sem o 9: adiciona
+    for ruim in ("1199999", "(11) 3333-4444", "(11) 99999-9999", "abc"):
+        with pytest.raises(WhatsAppInvalido):
+            normalizar_whatsapp(ruim)
+
+    cfg = Config(
+        pagamento="dev",
+        jwt_secret="segredo-de-teste-com-mais-de-32-caracteres!",
+        db_path=tmp_path / "e.sqlite",
+        dados_base=None,
+        espera_chave="chave-secreta",
+    )
+    with TestClient(criar_app(cfg)) as c:
+        r = c.post("/espera", json={"whatsapp": "(11) 99999-1234", "origem": "site"})
+        assert r.status_code == 200
+        assert r.json() == {"ok": True, "novo": True, "whatsapp": "(11) 99999-1234"}
+        r = c.post("/espera", json={"whatsapp": "+5511999991234"})
+        assert r.json()["novo"] is False  # mesmo número, não duplica
+        assert c.post("/espera", json={"whatsapp": "(11) 3333-4444"}).status_code == 422
+        assert c.get("/espera/total").json() == {"total": 1}
+        assert c.get("/espera.csv").status_code == 404
+        assert c.get("/espera.csv", params={"chave": "errada"}).status_code == 404
+        csv = c.get("/espera.csv", params={"chave": "chave-secreta"})
+        assert csv.status_code == 200
+        assert csv.text.startswith("whatsapp,criado_em,origem\n+5511999991234,")

@@ -39,6 +39,11 @@ CREATE TABLE IF NOT EXISTS usuarios (
     ultimo_acesso TEXT,
     origem        TEXT NOT NULL DEFAULT 'apuracao-2026'
 );
+CREATE TABLE IF NOT EXISTS espera (
+    whatsapp  TEXT PRIMARY KEY,
+    criado_em TEXT NOT NULL,
+    origem    TEXT
+);
 CREATE TABLE IF NOT EXISTS logins (
     token_hash TEXT PRIMARY KEY,
     usuario_id TEXT NOT NULL,
@@ -157,6 +162,27 @@ class DB:
                 ).fetchone()
                 is not None
             )
+
+    # ---------------------------------------------------------------- lista de espera
+    def entrar_espera(self, whatsapp: str, origem: str | None) -> bool:
+        """True se entrou agora; False se já estava."""
+        with self._lock:
+            cur = self._con.execute(
+                "INSERT OR IGNORE INTO espera(whatsapp, criado_em, origem) VALUES (?,?,?)",
+                (whatsapp, agora(), origem),
+            )
+            self._con.commit()
+            return cur.rowcount > 0
+
+    def total_espera(self) -> int:
+        with self._lock:
+            return self._con.execute("SELECT COUNT(*) FROM espera").fetchone()[0]
+
+    def listar_espera(self) -> list[sqlite3.Row]:
+        with self._lock:
+            return self._con.execute(
+                "SELECT whatsapp, criado_em, origem FROM espera ORDER BY criado_em"
+            ).fetchall()
 
     def usuario_por_email(self, email: str) -> sqlite3.Row | None:
         with self._lock:

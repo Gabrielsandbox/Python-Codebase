@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Apuração ao Vivo — 2º turno 2026</title>
+    <meta name="description" content="A apuração do 2º turno de 2026 em tempo real, com mapa por município e dados oficiais do TSE. Entre na lista de espera e receba o aviso no WhatsApp." />
+    <meta name="theme-color" content="#111113" />
+    <link rel="icon" href="/icons/icon.svg" type="image/svg+xml" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Apuração ao Vivo — 2º turno 2026" />
+    <meta property="og:description" content="Acompanhe a apuração em tempo real, município por município. Entre na lista de espera." />
+    <meta property="og:url" content="https://apuracaoaovivo.com/" />
+    <meta property="og:image" content="https://dados.apuracaoaovivo.com/og/placar.png" />
+    <meta property="og:locale" content="pt_BR" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="robots" content="index,follow" />
+  </head>
+  <body class="espera-body">
+    <main class="espera" id="espera">
+      <p class="espera-marca"><span class="espera-dot" aria-hidden="true"></span>Apuração ao Vivo</p>
+      <p class="espera-kicker">2º turno · 25 de outubro · a partir das 17h</p>
+      <h1>A apuração, ao vivo,<br />município por município.</h1>
+      <p class="espera-sub">Dados oficiais do TSE a cada 10 segundos, mapa do Brasil inteiro e chat com quem está acompanhando.</p>
+
+      <form class="espera-form" id="espera-form" novalidate>
+        <label for="whatsapp">Seu WhatsApp</label>
+        <div class="espera-row">
+          <span class="espera-ddi" aria-hidden="true">🇧🇷 +55</span>
+          <input id="whatsapp" name="whatsapp" type="tel" inputmode="numeric" autocomplete="tel-national" placeholder="(11) 99999-9999" maxlength="16" required aria-describedby="whatsapp-hint whatsapp-err" />
+        </div>
+        <span class="espera-err" id="whatsapp-err" role="alert" hidden></span>
+        <button class="espera-btn" type="submit" id="espera-btn">Me avisa quando abrir</button>
+        <p class="espera-hint" id="whatsapp-hint">Uma mensagem no dia do lançamento e outra no dia da apuração. Sem spam, sem repasse.</p>
+      </form>
+
+      <section class="espera-ok" id="espera-ok" hidden>
+        <p class="espera-ok-titulo">Pronto, você está na lista.</p>
+        <p class="espera-ok-txt">Vamos avisar em <b id="espera-numero"></b>. Chame quem também vai acompanhar:</p>
+        <a class="espera-wa" id="espera-wa" href="#" target="_blank" rel="noopener">
+          <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.75.46 3.45 1.32 4.95L2.05 22l5.25-1.38c1.45.79 3.08 1.21 4.74 1.21 5.46 0 9.91-4.45 9.91-9.91C21.95 6.45 17.5 2 12.04 2zm0 18.15c-1.48 0-2.93-.4-4.2-1.15l-.3-.18-3.12.82.83-3.04-.2-.31a8.26 8.26 0 0 1-1.26-4.38c0-4.54 3.7-8.24 8.24-8.24 4.54 0 8.24 3.7 8.24 8.24.01 4.54-3.69 8.24-8.23 8.24zm4.52-6.16c-.25-.12-1.47-.72-1.69-.81-.23-.08-.39-.12-.56.12-.17.25-.64.81-.78.97-.14.17-.29.19-.54.06-.25-.12-1.05-.39-1.99-1.23-.74-.66-1.23-1.47-1.38-1.72-.14-.25-.02-.38.11-.51.11-.11.25-.29.37-.43.12-.14.17-.25.25-.41.08-.17.04-.31-.02-.43-.06-.12-.56-1.34-.76-1.84-.2-.48-.41-.42-.56-.43h-.48c-.17 0-.43.06-.66.31-.22.25-.86.85-.86 2.07 0 1.22.89 2.4 1.01 2.56.12.17 1.75 2.67 4.23 3.74.59.26 1.05.41 1.41.52.59.19 1.13.16 1.56.1.48-.07 1.47-.6 1.67-1.18.21-.58.21-1.07.14-1.18-.06-.1-.22-.16-.47-.28z"/></svg>
+          Compartilhar no WhatsApp
+        </a>
+      </section>
+
+      <p class="espera-total" id="espera-total" hidden></p>
+      <footer class="espera-rodape">Fonte: TSE (resultados.tse.jus.br). Dados oficiais, sem projeções.</footer>
+    </main>
+    <script type="module" src="/src/espera.ts"></script>
+  </body>
+</html>

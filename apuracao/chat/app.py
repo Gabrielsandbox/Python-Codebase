@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import secrets
 import time
 from datetime import UTC, datetime
 from typing import Any
@@ -11,7 +12,7 @@ from typing import Any
 import orjson
 from fastapi import FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 from pydantic import BaseModel, Field
 
 from . import JWT_SECRET_PADRAO, Config
@@ -29,6 +30,7 @@ from .contas import (
     verificar_google,
 )
 from .db import DB
+from .espera import WhatsAppInvalido, formatar_whatsapp, normalizar_whatsapp
 from .hub import Hub, codigo_autor, reacao_valida, sala_valida
 from .moderacao import LimiteTaxa, TextoInvalido, bloqueado, carregar_bloqueio, higienizar
 from .pagamentos import ProvedorStripe, anexar_query, criar_provedor
@@ -50,6 +52,11 @@ class CheckoutIn(BaseModel):
 
 class GoogleIn(BaseModel):
     credential: str = Field(min_length=8, max_length=4096)
+
+
+class EsperaIn(BaseModel):
+    whatsapp: str = Field(min_length=8, max_length=32)
+    origem: str | None = Field(default=None, max_length=64)
 
 
 class LoginIn(BaseModel):
@@ -232,6 +239,51 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
             "autor": codigo_autor(claims["sub"]),
             "pago": db.conta_pagou(claims["sub"]),
         }
+
+    # ------------------------------------------------------------------ lista de espera
+    espera_ips: dict[str, list[float]] = {}
+
+    @app.post("/espera")
+    def espera_entrar(body: EsperaIn, request: Request) -> dict[str, Any]:
+        """Guarda o WhatsApp de quem quer ser avisado do lançamento. 10 por minuto por IP."""
+        ip = request.headers.get("cf-connecting-ip") or (
+            request.client.host if request.client else "?"
+        )
+        agora_ = time.monotonic()
+        janela = [t for t in espera_ips.get(ip, []) if agora_ - t < 60]
+        if len(janela) >= 10:
+            raise HTTPException(429, "muitas tentativas; aguarde um minuto")
+        try:
+            numero = normalizar_whatsapp(body.whatsapp)
+        except WhatsAppInvalido as exc:
+            raise HTTPException(422, str(exc)) from exc
+        janela.append(agora_)
+        espera_ips[ip] = janela
+        if len(espera_ips) > 10_000:  # não cresce para sempre
+            espera_ips.clear()
+        novo = db.entrar_espera(numero, (body.origem or "")[:64] or None)
+        return {"ok": True, "novo": novo, "whatsapp": formatar_whatsapp(numero)}
+
+    @app.get("/espera/total")
+    def espera_total() -> JSONResponse:
+        return JSONResponse(
+            {"total": db.total_espera()}, headers={"Cache-Control": "public, max-age=30"}
+        )
+
+    @app.get("/espera.csv")
+    def espera_csv(chave: str = Query(default="")) -> PlainTextResponse:
+        """Exporta a lista (só com ``ESPERA_CHAVE``)."""
+        if not cfg.espera_chave or not secrets.compare_digest(chave, cfg.espera_chave):
+            raise HTTPException(404)
+        linhas = ["whatsapp,criado_em,origem"]
+        for r in db.listar_espera():
+            origem = (r["origem"] or "").replace(",", " ")
+            linhas.append(f"{r['whatsapp']},{r['criado_em']},{origem}")
+        return PlainTextResponse(
+            "\n".join(linhas) + "\n",
+            media_type="text/csv; charset=utf-8",
+            headers={"Content-Disposition": "attachment; filename=lista-de-espera.csv"},
+        )
 
     @app.post("/conta/google")
     def conta_google(body: GoogleIn) -> JSONResponse:

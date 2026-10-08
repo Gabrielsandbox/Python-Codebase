@@ -10,6 +10,7 @@ const proxy = {
   '/chat': { target: 'http://127.0.0.1:8001', changeOrigin: true, ws: true },
   '/alertas': { target: 'http://127.0.0.1:8002', changeOrigin: true },
   '/conta': { target: 'http://127.0.0.1:8001', changeOrigin: true },
+  '/espera': { target: 'http://127.0.0.1:8001', changeOrigin: true },
 };
 
 export default defineConfig({
@@ -25,6 +26,9 @@ export default defineConfig({
     target: 'es2020',
     sourcemap: false,
     rollupOptions: {
+      // duas páginas: o app (index.html) e a lista de espera (espera.html); scripts/pos-build.mjs troca
+      // as duas de lugar quando VITE_ESPERA=1
+      input: { index: 'index.html', espera: 'espera.html' },
       output: {
         manualChunks: {
           geo: ['d3-geo', 'topojson-client'],
