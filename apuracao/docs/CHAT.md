@@ -156,3 +156,24 @@ paywall com o texto "Chat ao vivo + modo telão por R$ 5".
   formulário que chama `/conta/login`; `?login=<token>` na URL é trocado por sessão ao carregar.
 - Segurança: o token fica em `localStorage` (risco aceito para o chat; a plataforma deve migrar para
   cookie `httpOnly` com sessão no servidor). O link de login nunca é logado em produção.
+
+## Entrar com Google
+
+- Frontend: botão do Google Identity Services (`VITE_GOOGLE_CLIENT_ID`) no paywall; o ID token vai
+  em `POST /conta/google` `{ "credential" }` → mesma resposta de `/chat/acesso` mais `"pago"`
+  (se a conta já tem o chat liberado). Sem o client id configurado o site cai no fluxo por e-mail.
+- Backend: verifica assinatura (JWKS do Google), emissor, audiência (`GOOGLE_CLIENT_ID`) e
+  `email_verified`. A conta é encontrada pelo `google_sub` ou criada pelo e-mail (apelido inicial =
+  nome do Google). Em `CHAT_PAGAMENTO=dev` sem client id, a credencial `dev:<email>:<nome>` simula o
+  Google (nunca em produção: o modo dev já não cobra).
+- `POST /chat/checkout` com `Authorization: Bearer` usa o e-mail da conta e já cria o pagamento
+  vinculado (`pagamentos.usuario_id`); o `apelido` enviado vira o apelido da conta.
+- WebSocket: token válido de conta **sem** pagamento fecha com `4402` (`pagamento necessário`); o
+  site volta ao paywall já logado, só com o botão de pagar.
+- `/chat/eu` e `/conta/*` devolvem `pago`.
+
+Configuração (Google Cloud Console → APIs e serviços → Credenciais → Criar → ID do cliente OAuth,
+tipo "Aplicativo da Web"): origens JavaScript autorizadas `https://apuracaoaovivo.com`,
+`https://www.apuracaoaovivo.com` e `http://localhost:5173` (dev). Não precisa de URI de
+redirecionamento (o botão usa popup). Tela de consentimento: nome "Apuração ao Vivo", e-mail de
+suporte, domínio `apuracaoaovivo.com`, escopos só `email` e `profile`, publicada (não "em teste").

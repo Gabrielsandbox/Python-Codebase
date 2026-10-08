@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import secrets
 import time
 from datetime import UTC, datetime
 from typing import Any
@@ -11,21 +12,25 @@ from typing import Any
 import orjson
 from fastapi import FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 from pydantic import BaseModel, Field
 
 from . import JWT_SECRET_PADRAO, Config
 from .auth import ApelidoInvalido, emitir_token, normalizar_apelido, novo_ref, verificar_token
 from .contas import (
     EmailInvalido,
+    GoogleInvalido,
+    apelido_de_nome,
     corpo_email_login,
     enviar_email,
     hash_token,
     normalizar_email,
     novo_id_usuario,
     novo_token_login,
+    verificar_google,
 )
 from .db import DB
+from .espera import WhatsAppInvalido, formatar_whatsapp, normalizar_whatsapp
 from .hub import Hub, codigo_autor, reacao_valida, sala_valida
 from .moderacao import LimiteTaxa, TextoInvalido, bloqueado, carregar_bloqueio, higienizar
 from .pagamentos import ProvedorStripe, anexar_query, criar_provedor
@@ -35,12 +40,23 @@ log = logging.getLogger("apuracao.chat")
 WS_NAO_AUTORIZADO = 4401
 WS_LIMITE = 4429
 WS_SALA_INVALIDA = 4400
+WS_PAGAMENTO = 4402  # conta válida, mas sem pagamento
 
 
 class CheckoutIn(BaseModel):
     apelido: str = Field(min_length=1, max_length=64)
-    email: str = Field(min_length=3, max_length=254)
+    # e-mail só quando não há conta logada (Authorization: Bearer); com conta, vem dela
+    email: str | None = Field(default=None, max_length=254)
     retorno: str = Field(min_length=1, max_length=2048)
+
+
+class GoogleIn(BaseModel):
+    credential: str = Field(min_length=8, max_length=4096)
+
+
+class EsperaIn(BaseModel):
+    whatsapp: str = Field(min_length=8, max_length=32)
+    origem: str | None = Field(default=None, max_length=64)
 
 
 class LoginIn(BaseModel):
@@ -74,6 +90,15 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
     async def _shutdown() -> None:
         await hub.parar()
         db.close()
+
+    def _claims_de(request: Request) -> dict | None:
+        auth = request.headers.get("authorization", "")
+        if not auth.startswith("Bearer "):
+            return None
+        claims = verificar_token(cfg.jwt_secret, auth.removeprefix("Bearer ").strip())
+        if claims is None or db.bloqueado(claims["sub"]):
+            return None
+        return claims
 
     # ------------------------------------------------------------------ HTTP
     @app.get("/chat/estado")
@@ -116,10 +141,19 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
         )
 
     @app.post("/chat/checkout")
-    def checkout(body: CheckoutIn) -> dict[str, Any]:
+    def checkout(body: CheckoutIn, request: Request) -> dict[str, Any]:
+        """Com conta logada (Entrar com Google), o pagamento já nasce vinculado a ela e o e-mail
+        é o da conta. Sem conta, o e-mail vem no corpo e a conta é criada na confirmação."""
+        claims = _claims_de(request)
+        usuario = db.usuario(claims["sub"]) if claims else None
         try:
             apelido = normalizar_apelido(body.apelido)
-            email = normalizar_email(body.email)
+            if usuario is not None:
+                email = usuario["email"]
+            elif body.email:
+                email = normalizar_email(body.email)
+            else:
+                raise HTTPException(422, "entre com o Google ou informe um e-mail")
         except (ApelidoInvalido, EmailInvalido) as exc:
             raise HTTPException(422, str(exc)) from exc
         if not body.retorno.startswith(("http://", "https://")):
@@ -133,8 +167,16 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
             email=email,
         )
         db.criar_pagamento(
-            ref, provedor.nome, apelido, cfg.preco_centavos, ck.provedor_id, email=email
+            ref,
+            provedor.nome,
+            apelido,
+            cfg.preco_centavos,
+            ck.provedor_id,
+            email=email,
+            usuario_id=usuario["id"] if usuario is not None else None,
         )
+        if usuario is not None and usuario["apelido"] != apelido:
+            db.obter_ou_criar_usuario(usuario["id"], email, apelido)  # atualiza o apelido
         return {"url": ck.url, "ref": ref}
 
     def _sessao(usuario_id: str, apelido: str, email: str | None) -> JSONResponse:
@@ -147,6 +189,7 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
                 "email": email,
                 "expira_em": exp.isoformat(),
                 "autor": codigo_autor(usuario_id),
+                "pago": db.conta_pagou(usuario_id),
             }
         )
 
@@ -186,16 +229,90 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
     @app.get("/chat/eu")
     def eu(request: Request) -> dict[str, Any]:
         """Valida o token (``Authorization: Bearer``) sem abrir WebSocket."""
-        auth = request.headers.get("authorization", "")
-        claims = verificar_token(cfg.jwt_secret, auth.removeprefix("Bearer ").strip())
-        if claims is None or db.bloqueado(claims["sub"]):
+        claims = _claims_de(request)
+        if claims is None:
             raise HTTPException(401, "token inválido ou expirado")
         return {
             "apelido": claims["apelido"],
             "email": claims.get("email"),
             "expira_em": datetime.fromtimestamp(claims["exp"], tz=UTC).isoformat(),
             "autor": codigo_autor(claims["sub"]),
+            "pago": db.conta_pagou(claims["sub"]),
         }
+
+    # ------------------------------------------------------------------ lista de espera
+    espera_ips: dict[str, list[float]] = {}
+
+    @app.post("/espera")
+    def espera_entrar(body: EsperaIn, request: Request) -> dict[str, Any]:
+        """Guarda o WhatsApp de quem quer ser avisado do lançamento. 10 por minuto por IP."""
+        ip = request.headers.get("cf-connecting-ip") or (
+            request.client.host if request.client else "?"
+        )
+        agora_ = time.monotonic()
+        janela = [t for t in espera_ips.get(ip, []) if agora_ - t < 60]
+        if len(janela) >= 10:
+            raise HTTPException(429, "muitas tentativas; aguarde um minuto")
+        try:
+            numero = normalizar_whatsapp(body.whatsapp)
+        except WhatsAppInvalido as exc:
+            raise HTTPException(422, str(exc)) from exc
+        janela.append(agora_)
+        espera_ips[ip] = janela
+        if len(espera_ips) > 10_000:  # não cresce para sempre
+            espera_ips.clear()
+        novo = db.entrar_espera(numero, (body.origem or "")[:64] or None)
+        return {"ok": True, "novo": novo, "whatsapp": formatar_whatsapp(numero)}
+
+    @app.get("/espera/total")
+    def espera_total() -> JSONResponse:
+        return JSONResponse(
+            {"total": db.total_espera()}, headers={"Cache-Control": "public, max-age=30"}
+        )
+
+    @app.get("/espera.csv")
+    def espera_csv(chave: str = Query(default="")) -> PlainTextResponse:
+        """Exporta a lista (só com ``ESPERA_CHAVE``)."""
+        if not cfg.espera_chave or not secrets.compare_digest(chave, cfg.espera_chave):
+            raise HTTPException(404)
+        linhas = ["whatsapp,criado_em,origem"]
+        for r in db.listar_espera():
+            origem = (r["origem"] or "").replace(",", " ")
+            linhas.append(f"{r['whatsapp']},{r['criado_em']},{origem}")
+        return PlainTextResponse(
+            "\n".join(linhas) + "\n",
+            media_type="text/csv; charset=utf-8",
+            headers={"Content-Disposition": "attachment; filename=lista-de-espera.csv"},
+        )
+
+    @app.post("/conta/google")
+    def conta_google(body: GoogleIn) -> JSONResponse:
+        """Entrar com Google: o ID token do botão vira (ou reencontra) a conta e uma sessão.
+        ``pago`` diz se essa conta já tem o chat liberado."""
+        if cfg.google_client_id:
+            try:
+                g = verificar_google(body.credential, cfg.google_client_id)
+            except GoogleInvalido as exc:
+                raise HTTPException(401, str(exc)) from exc
+        elif cfg.pagamento == "dev" and body.credential.startswith("dev:"):
+            # só em desenvolvimento (que já não cobra): "dev:<email>:<nome>"
+            partes = body.credential.split(":", 2)
+            g = {
+                "sub": "dev-" + partes[1],
+                "email": normalizar_email(partes[1]),
+                "nome": partes[2] if len(partes) > 2 else "",
+                "foto": None,
+            }
+        else:
+            raise HTTPException(501, "Entrar com Google não está configurado (GOOGLE_CLIENT_ID)")
+        u = db.usuario_por_google(g["sub"])
+        if u is None:
+            u = db.obter_ou_criar_usuario(
+                novo_id_usuario(), g["email"], apelido_de_nome(g["nome"], g["email"])
+            )
+        db.vincular_google(u["id"], g["sub"], g["nome"], g["foto"])
+        u = db.usuario(u["id"])
+        return _sessao(u["id"], u["apelido"], u["email"])
 
     # ------------------------------------------------------------------ conta (login por e-mail)
     @app.post("/conta/login")
@@ -273,6 +390,9 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
         claims = verificar_token(cfg.jwt_secret, token)
         if claims is None or db.bloqueado(claims["sub"]):
             await ws.close(code=WS_NAO_AUTORIZADO)
+            return
+        if not db.conta_pagou(claims["sub"]):
+            await ws.close(code=WS_PAGAMENTO)  # logado com Google, mas ainda sem os R$ 5
             return
         sala_ok = sala_valida(sala)
         if sala_ok is None:

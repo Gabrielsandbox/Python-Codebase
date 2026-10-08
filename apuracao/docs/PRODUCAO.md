@@ -124,6 +124,33 @@ Source = este repositório, **Root Directory = `apuracao`**, Builder = Dockerfil
   provedor é o plano B do runbook).
 - Health: `GET /chat/estado`, `GET /alertas/config`, `GET /health`.
 
+## 3a. Página de espera (antes do lançamento)
+
+Com `VITE_ESPERA=1` em `apuracao/web/.env.production`, o build coloca a **lista de espera** na raiz
+do site (`/`) e a apuração fica em **`/ao-vivo`** (endereço de teste, não divulgado). A página pede
+o WhatsApp e grava em `POST /espera` no serviço do chat (tabela `espera`, 10 tentativas por minuto
+por IP, número normalizado para `+55DDDN`). Para lançar: apague a linha (ou `VITE_ESPERA=0`) e faça
+o deploy do site; a lista de espera continua em `/espera`.
+
+- Baixar a lista: defina `ESPERA_CHAVE` no serviço `chat` (Railway) e abra
+  `https://chat.apuracaoaovivo.com/espera.csv?chave=<ESPERA_CHAVE>` (CSV: whatsapp, criado_em, origem).
+- Total público (só aparece na página a partir de 500): `GET /espera/total`.
+- Para avisar todo mundo no dia: exporte o CSV e use a API do WhatsApp Business (ou uma ferramenta de
+  disparo); o número já está no formato internacional.
+
+## 3b. Entrar com Google (conta)
+
+1. Google Cloud Console → projeto novo "Apuração ao Vivo" → **APIs e serviços → Tela de permissão
+   OAuth**: tipo Externo, nome do app, e-mail de suporte, domínio autorizado `apuracaoaovivo.com`,
+   escopos `email`/`profile`/`openid`, e **publicar** (em "teste" só 100 contas entram).
+2. **Credenciais → Criar credenciais → ID do cliente OAuth → Aplicativo da Web**. Origens JavaScript
+   autorizadas: `https://apuracaoaovivo.com`, `https://www.apuracaoaovivo.com`,
+   `http://localhost:5173`. Sem URI de redirecionamento. Copie o **ID do cliente**
+   (`…apps.googleusercontent.com`); o segredo não é usado.
+3. Railway → serviço `chat` → `GOOGLE_CLIENT_ID=<id>`.
+4. Site: `apuracao/web/.env.production` → `VITE_GOOGLE_CLIENT_ID=<id>` (é público, pode ir no
+   repositório) e novo deploy.
+
 ## 4. Stripe (cobrança do chat + telão)
 
 1. Chaves: Developers → API keys → `sk_live_...` em `STRIPE_SECRET_KEY`.

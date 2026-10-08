@@ -6,9 +6,13 @@ export const ONLINE_MINIMO = 500;
 
 export const CHAT_BASE: string = (import.meta.env.VITE_CHAT_BASE as string | undefined)?.replace(/\/$/, '') || '/chat';
 
+const CONTA_BASE = CHAT_BASE.replace(/\/chat$/, '') + '/conta';
+
 export const CHAVE_TOKEN = 'chat_token';
 export const CHAVE_APELIDO = 'chat_apelido';
 export const CHAVE_EMAIL = 'chat_email';
+/** OAuth client id (tipo Web) do Google Cloud; vazio = botão do Google não aparece (fica o e-mail). */
+export const GOOGLE_CLIENT_ID: string = (import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined) ?? '';
 export const EMAIL_RE = /^[^@\s]{1,64}@[^@\s]+\.[^@\s]{2,}$/;
 export const MAX_TEXTO = 280;
 export const APELIDO_RE = /^[\p{L}\p{N}_ ]{2,24}$/u;
@@ -20,6 +24,7 @@ export interface Estado {
   mensagens_total: number;
   /** Extensão (salas): online por sala, só salas com gente. */
   salas?: Record<string, number>;
+  provedor?: string;
 }
 export interface Checkout {
   url: string;
@@ -31,6 +36,8 @@ export interface Acesso {
   email?: string | null;
   expira_em: string;
   autor?: string;
+  /** A conta já tem o chat liberado (pagou). */
+  pago?: boolean;
 }
 
 export interface MsgChat {
@@ -112,13 +119,21 @@ async function chamarUrl<T>(url: string, init?: RequestInit): Promise<T> {
 
 export const estado = (): Promise<Estado> => chamar<Estado>('/estado', { cache: 'no-cache' });
 
-export const checkout = (apelido: string, email: string, retorno: string): Promise<Checkout> =>
-  chamar<Checkout>('/checkout', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ apelido, email, retorno }) });
+/** Checkout: com `token` (conta logada) o e-mail é o da conta; sem conta, vai `email`. */
+export const checkout = (apelido: string, retorno: string, conta: { token?: string; email?: string }): Promise<Checkout> =>
+  chamar<Checkout>('/checkout', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(conta.token ? { Authorization: `Bearer ${conta.token}` } : {}) },
+    body: JSON.stringify({ apelido, retorno, ...(conta.token ? {} : { email: conta.email }) }),
+  });
+
+/** Entrar com Google: troca o ID token do botão por uma sessão (`pago` diz se já tem o chat). */
+export const contaGoogle = (credential: string): Promise<Acesso> =>
+  chamarUrl<Acesso>(`${CONTA_BASE}/google`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ credential }) });
 
 export const acesso = (ref: string): Promise<Acesso> => chamar<Acesso>(`/acesso?ref=${encodeURIComponent(ref)}`, { cache: 'no-store' });
 
 // ------------------------------------------------------------------ conta (quem pagou fica logado)
-const CONTA_BASE = CHAT_BASE.replace(/\/chat$/, '') + '/conta';
 export interface LoginPedido {
   ok: boolean;
   /** Só em desenvolvimento sem e-mail configurado: o link vem na resposta. */
@@ -134,6 +149,7 @@ export interface Eu {
   apelido: string;
   email?: string | null;
   expira_em: string;
+  pago?: boolean;
 }
 /** Valida o token sem abrir WebSocket (200 ok · 401 inválido/expirado · outro = servidor fora). */
 export const eu = (token: string): Promise<Eu> => chamar<Eu>('/eu', { cache: 'no-store', headers: { Authorization: `Bearer ${token}` } });
@@ -158,6 +174,8 @@ export interface Sessao {
   apelido: string;
   autor?: string;
   email?: string | null;
+  /** false = conta logada (Google) ainda sem os R$ 5. Ausente = desconhecido (sessão antiga). */
+  pago?: boolean;
 }
 
 export function lerSessao(): Sessao | null {
@@ -165,7 +183,8 @@ export function lerSessao(): Sessao | null {
     const token = localStorage.getItem(CHAVE_TOKEN);
     const apelido = localStorage.getItem(CHAVE_APELIDO) ?? '';
     const email = localStorage.getItem(CHAVE_EMAIL);
-    return token ? { token, apelido, email } : null;
+    const pagoRaw = localStorage.getItem('chat_pago');
+    return token ? { token, apelido, email, pago: pagoRaw === null ? undefined : pagoRaw === '1' } : null;
   } catch {
     return null;
   }
@@ -177,12 +196,14 @@ export function guardarSessao(s: Sessao | null): void {
       localStorage.removeItem(CHAVE_TOKEN);
       localStorage.removeItem(CHAVE_APELIDO);
       localStorage.removeItem('chat_autor');
+      localStorage.removeItem('chat_pago');
       // o e-mail fica: é só o que a pessoa digitou, e ajuda a entrar de novo
     } else {
       localStorage.setItem(CHAVE_TOKEN, s.token);
       localStorage.setItem(CHAVE_APELIDO, s.apelido);
       if (s.autor) localStorage.setItem('chat_autor', s.autor);
       if (s.email) localStorage.setItem(CHAVE_EMAIL, s.email);
+      if (s.pago !== undefined) localStorage.setItem('chat_pago', s.pago ? '1' : '0');
     }
   } catch {
     /* armazenamento indisponível (modo privado etc.) */
@@ -203,6 +224,8 @@ export interface SocketOuvintes {
   onExpirado: () => void;
   /** Sala recusada (4400): o chamador deve voltar à sala geral. */
   onSalaInvalida?: () => void;
+  /** Conta válida, mas sem pagamento (4402): mostrar o paywall já logado. */
+  onSemPagamento?: () => void;
 }
 
 const decoder = new TextDecoder();
@@ -289,6 +312,11 @@ export class ChatSocket {
       if (ev.code === 4400) {
         this.fechar();
         this.ouvintes.onSalaInvalida?.();
+        return;
+      }
+      if (ev.code === 4402) {
+        this.fechar();
+        this.ouvintes.onSemPagamento?.();
         return;
       }
       // Handshake recusado repetidamente (servidor fecha antes do accept → 403 → 1006 no

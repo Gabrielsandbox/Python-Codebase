@@ -1,0 +1,209 @@
+/* Página de espera: independente do app (não carrega styles.css) */
+:root {
+  --bg: #111113;
+  --ink: #f6f5f1;
+  --ink-2: #bebec3;
+  --muted: #8e8e96;
+  --line: #2a2a2f;
+  --surface: #1c1c20;
+  --wa: #25d366;
+  --wa-hover: #1ebe5a;
+  --live: #e63946;
+  color-scheme: dark;
+}
+* {
+  box-sizing: border-box;
+}
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+}
+body.espera-body {
+  background: radial-gradient(1200px 600px at 50% -10%, #23232a 0%, var(--bg) 60%);
+  color: var(--ink);
+  font-family:
+    Inter,
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    Roboto,
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px calc(24px + env(safe-area-inset-bottom));
+}
+.espera {
+  width: 100%;
+  max-width: 560px;
+  display: grid;
+  gap: 14px;
+}
+.espera-marca {
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 800;
+  font-size: 15px;
+  letter-spacing: -0.01em;
+}
+.espera-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--live);
+  box-shadow: 0 0 0 0 rgba(230, 57, 70, 0.5);
+  animation: ping 1.8s ease-out infinite;
+}
+@keyframes ping {
+  0% {
+    box-shadow: 0 0 0 0 rgba(230, 57, 70, 0.55);
+  }
+  70% {
+    box-shadow: 0 0 0 8px rgba(230, 57, 70, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(230, 57, 70, 0);
+  }
+}
+.espera-kicker {
+  margin: 10px 0 0;
+  color: var(--ink-2);
+  font-size: 14px;
+}
+.espera h1 {
+  margin: 0;
+  font-size: clamp(30px, 6.5vw, 46px);
+  line-height: 1.06;
+  letter-spacing: -0.02em;
+}
+.espera-sub {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: 16px;
+  line-height: 1.45;
+  max-width: 44ch;
+}
+.espera-form {
+  margin-top: 10px;
+  display: grid;
+  gap: 8px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface);
+}
+.espera-form label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+.espera-row {
+  display: flex;
+  align-items: stretch;
+  border: 1.5px solid var(--line);
+  border-radius: 12px;
+  background: #0e0e10;
+  overflow: hidden;
+}
+.espera-row:focus-within {
+  border-color: var(--ink-2);
+}
+.espera-ddi {
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  font-size: 15px;
+  color: var(--ink-2);
+  border-right: 1px solid var(--line);
+  white-space: nowrap;
+}
+.espera-row input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 18px;
+  padding: 14px 12px;
+  outline: none;
+  letter-spacing: 0.02em;
+}
+.espera-err {
+  color: #ff8a8a;
+  font-size: 13px;
+}
+.espera-btn {
+  margin-top: 4px;
+  border: 0;
+  border-radius: 999px;
+  padding: 15px 20px;
+  background: var(--ink);
+  color: #111;
+  font: inherit;
+  font-size: 17px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.espera-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.espera-hint {
+  margin: 4px 0 0;
+  font-size: 12.5px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+.espera-ok {
+  margin-top: 10px;
+  display: grid;
+  gap: 10px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface);
+}
+.espera-ok-titulo {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 800;
+}
+.espera-ok-txt {
+  margin: 0;
+  color: var(--ink-2);
+}
+.espera-wa {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  padding: 13px 18px;
+  border-radius: 999px;
+  background: var(--wa);
+  color: #fff;
+  font-weight: 700;
+  text-decoration: none;
+}
+.espera-wa:hover {
+  background: var(--wa-hover);
+}
+.espera-total {
+  margin: 0;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+.espera-rodape {
+  margin-top: 18px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* o atributo hidden vence qualquer display das classes acima */
+[hidden] {
+  display: none !important;
+}

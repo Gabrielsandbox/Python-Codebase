@@ -47,14 +47,20 @@ export function montarRecursos(store: Store, secao: SecaoMapa, geo: Geo, chat: C
   const abrirTelao = async (opts: { fullscreen?: boolean } = {}) => {
     if (telao.aberto) return;
     const sessao = chat.sessao();
-    if (!sessao) {
+    if (!sessao || sessao.pago === false) {
       marcarPendente(true);
       chat.pedirPagamento('telao');
       return;
     }
     if (tokenValidado !== sessao.token) {
       try {
-        await eu(sessao.token);
+        const info = await eu(sessao.token);
+        if (info.pago === false) {
+          // conta logada (Google) sem os R$ 5: o telão faz parte do pacote pago
+          marcarPendente(true);
+          chat.pedirPagamento('telao');
+          return;
+        }
         tokenValidado = sessao.token;
       } catch (e) {
         if (e instanceof ChatHttpError && e.status === 401) {

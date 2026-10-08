@@ -2805,3 +2805,53 @@ html[data-chat-layout="sheet"] .pay-legal {
   font-size: 12.5px;
   color: var(--ink-2);
 }
+
+/* paywall: entrar com o Google → apelido + pagar ------------------------------ */
+.pay-entrar {
+  display: grid;
+  gap: 10px;
+}
+.pay-passo {
+  margin: 0;
+  font-size: 13.5px;
+  color: var(--ink-2);
+}
+.pay-google {
+  min-height: 44px;
+  display: flex;
+  justify-content: flex-start;
+}
+.pay-google:empty {
+  min-height: 0;
+}
+.btn-dev {
+  justify-self: start;
+}
+.pay-conta {
+  margin: 0 0 4px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13.5px;
+  color: var(--ink-2);
+}
+.pay-conta .check {
+  flex: none;
+}
+.pay-conta b {
+  color: var(--ink);
+}
+.pay-conta-email {
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.pay-conta .btn-link {
+  padding: 0;
+  font-size: 13px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.pay-form[hidden],
+.pay-entrar[hidden] {
+  display: none;
+}

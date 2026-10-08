@@ -14,6 +14,7 @@ import secrets
 from datetime import UTC, datetime, timedelta
 
 import httpx
+import jwt
 
 log = logging.getLogger("apuracao.chat.contas")
 
@@ -76,3 +77,51 @@ def enviar_email(*, api_key: str | None, de: str, para: str, assunto: str, texto
     except httpx.HTTPError:
         log.exception("falha ao enviar e-mail para %s", para)
         return False
+
+
+# ---------------------------------------------------------------- Entrar com Google
+# O botão do Google (Identity Services) devolve um ID token (JWT RS256) assinado pelo Google.
+# Verificamos assinatura (JWKS do Google), emissor, audiência (nosso client id) e e-mail verificado.
+GOOGLE_JWKS = "https://www.googleapis.com/oauth2/v3/certs"
+GOOGLE_ISS = ("accounts.google.com", "https://accounts.google.com")
+_jwks: jwt.PyJWKClient | None = None
+
+
+class GoogleInvalido(ValueError):
+    pass
+
+
+def verificar_google(credential: str, client_id: str) -> dict:
+    """Devolve ``{"sub", "email", "nome", "foto"}`` ou lança :class:`GoogleInvalido`."""
+    global _jwks
+    try:
+        if _jwks is None:
+            _jwks = jwt.PyJWKClient(GOOGLE_JWKS, cache_keys=True, lifespan=3600)
+        chave = _jwks.get_signing_key_from_jwt(credential)
+        claims = jwt.decode(
+            credential,
+            chave.key,
+            algorithms=["RS256"],
+            audience=client_id,
+            issuer=GOOGLE_ISS,
+            options={"require": ["exp", "iat", "sub", "email"]},
+        )
+    except (jwt.PyJWTError, ValueError) as exc:
+        raise GoogleInvalido("credencial do Google inválida") from exc
+    if not claims.get("email_verified"):
+        raise GoogleInvalido("e-mail do Google não verificado")
+    return {
+        "sub": str(claims["sub"]),
+        "email": normalizar_email(claims["email"]),
+        "nome": str(claims.get("given_name") or claims.get("name") or "").strip(),
+        "foto": claims.get("picture"),
+    }
+
+
+def apelido_de_nome(nome: str, email: str) -> str:
+    """Apelido inicial a partir do nome do Google (a pessoa pode trocar no checkout)."""
+    import re as _re
+
+    base = (nome or email.split("@")[0]).strip()
+    base = _re.sub(r"[^A-Za-zÀ-ÿ0-9_ ]", "", base)[:24].strip()
+    return base if len(base) >= 2 else "Visitante"

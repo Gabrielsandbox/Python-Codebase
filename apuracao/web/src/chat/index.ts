@@ -4,7 +4,7 @@
 import './chat-ext.css';
 import { el, fmtInt } from '../format';
 import type { Store } from '../store';
-import { acesso, ChatHttpError, entrar, estado as lerEstado, guardarSessao, lerSessao, type Estado, type Sessao, ONLINE_MINIMO } from './client';
+import { acesso, ChatHttpError, contaGoogle, entrar, estado as lerEstado, guardarSessao, lerSessao, type Acesso, type Estado, type Sessao, ONLINE_MINIMO } from './client';
 import { montarPaywall, type VariantePaywall } from './paywall';
 import { montarPrevia } from './previa';
 import { montarSala } from './sala';
@@ -233,9 +233,42 @@ export function montarChat(raiz: HTMLElement, store: Store): ChatApi {
   // ---------------------------------------------------------------- telas
   let tela: Tela = 'paywall';
 
+  const sessaoDe = (a: Acesso): Sessao => ({ token: a.token, apelido: a.apelido, autor: a.autor, email: a.email, pago: a.pago });
+  /** Conta logada mas sem os R$ 5: paywall só com apelido + pagar. */
+  const entrarSemPagar = (sessao: Sessao, msg: string | null = null) => {
+    guardarSessao({ ...sessao, pago: false });
+    paywall.setConta(sessao);
+    mostrar('paywall');
+    paywall.aviso(msg);
+  };
   const paywall = montarPaywall({
     aoCheckout: () => {
       /* o navegador será redirecionado */
+    },
+    aoGoogle: async (credential) => {
+      try {
+        const a = await contaGoogle(credential);
+        const sessao = sessaoDe(a);
+        guardarSessao(sessao);
+        if (a.pago) {
+          mostrar('sala', sessao);
+          for (const cb of ouvintesSessao) cb(sessao);
+        } else entrarSemPagar(sessao);
+      } catch (e) {
+        paywall.aviso(
+          e instanceof ChatHttpError && e.status === 501
+            ? 'Entrar com Google ainda não está disponível. Use o acesso por e-mail.'
+            : e instanceof ChatHttpError && e.status === 401
+              ? 'O Google não confirmou sua conta. Tente de novo.'
+              : 'Não foi possível entrar agora. Tente de novo em instantes.',
+        );
+      }
+    },
+    aoTrocarConta: () => {
+      guardarSessao(null);
+      window.google?.accounts.id.disableAutoSelect();
+      paywall.setConta(null);
+      mostrar('paywall');
     },
   });
   // feed somente leitura da sala, desfocado atrás do cartão do paywall (GET /chat/previa a cada 5 s)
@@ -267,8 +300,16 @@ export function montarChat(raiz: HTMLElement, store: Store): ChatApi {
     },
     aoSair: () => {
       guardarSessao(null);
+      window.google?.accounts.id.disableAutoSelect();
       paywall.setVariante('chat');
+      paywall.setConta(null);
       mostrar('paywall');
+    },
+    aoSemPagamento: () => {
+      const s = sessaoAtual ?? lerSessao();
+      paywall.setVariante('chat');
+      if (s) entrarSemPagar(s, 'Sua conta ainda não tem o chat liberado. Pague os R$ 5 para entrar.');
+      else mostrar('paywall');
     },
     aoTrocarSala: (nova) => trocarSala(nova),
   });
@@ -378,9 +419,13 @@ export function montarChat(raiz: HTMLElement, store: Store): ChatApi {
     if (!mq.matches) abrir(true);
     try {
       const a = await entrar(tok);
-      const sessao = { token: a.token, apelido: a.apelido, autor: a.autor, email: a.email };
+      const sessao = sessaoDe(a);
       guardarSessao(sessao);
       limparUrl();
+      if (a.pago === false) {
+        entrarSemPagar(sessao);
+        return;
+      }
       mostrar('sala', sessao);
       for (const cb of ouvintesSessao) cb(sessao);
     } catch (e) {
@@ -397,7 +442,7 @@ export function montarChat(raiz: HTMLElement, store: Store): ChatApi {
     for (;;) {
       try {
         const a = await acesso(ref);
-        const sessao = { token: a.token, apelido: a.apelido, autor: a.autor, email: a.email };
+        const sessao = sessaoDe(a);
         guardarSessao(sessao);
         limparUrl();
         mostrar('sala', sessao);
@@ -432,6 +477,7 @@ export function montarChat(raiz: HTMLElement, store: Store): ChatApi {
   const sessao = lerSessao();
   if (ref) void concluirPagamento(ref);
   else if (loginTok) void concluirLogin(loginTok);
+  else if (sessao && sessao.pago === false) entrarSemPagar(sessao);
   else if (sessao) mostrar('sala', sessao);
   else mostrar('paywall');
 
