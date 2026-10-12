@@ -1,4 +1,5 @@
 import './styles.css';
+import './analytics';
 import { descobrirAtivo, getJson, HttpError, Poller, urls, type Chave, type Payloads } from './api';
 import { el } from './format';
 import { Store } from './store';

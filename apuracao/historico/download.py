@@ -7,6 +7,7 @@ Retomável: se existir um `.part` menor que o total, continua com `Range`.
 Os arquivos baixados são dados NÃO confiáveis: ficam isolados em RAW_DIR e nunca são
 executados/importados — apenas lidos como CSV pelo DuckDB.
 """
+
 from __future__ import annotations
 
 import time

@@ -1,5 +1,6 @@
 // Página de espera: antes do lançamento o site só pede o WhatsApp (POST /espera no serviço do chat).
 import './espera.css';
+import './analytics';
 
 const CHAT_BASE: string = (import.meta.env.VITE_CHAT_BASE as string | undefined)?.replace(/\/$/, '') || '/chat';
 const ESPERA_BASE = CHAT_BASE.replace(/\/chat$/, '') + '/espera';
