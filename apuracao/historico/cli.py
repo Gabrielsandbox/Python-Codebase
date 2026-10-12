@@ -1,7 +1,9 @@
 """CLI: `python -m historico <comando>` (rodar a partir de `apuracao/`)."""
+
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import typer
 from rich.console import Console
@@ -10,7 +12,9 @@ from rich.table import Table
 from historico import TABELAS
 from historico.catalogo import listar_recursos, tamanho_remoto
 
-app = typer.Typer(help="Acervo histórico de resultados eleitorais (TSE dados abertos).", no_args_is_help=True)
+app = typer.Typer(
+    help="Acervo histórico de resultados eleitorais (TSE dados abertos).", no_args_is_help=True
+)
 consulta_app = typer.Typer(help="Consultas ao lake Parquet.", no_args_is_help=True)
 app.add_typer(consulta_app, name="consulta")
 console = Console()
@@ -39,9 +43,15 @@ def _imprimir(linhas: list[dict], como_json: bool, titulo: str = "") -> None:
 @app.command()
 def catalogo(
     ano: int,
-    sufixo: str | None = typer.Option(None, help="ex.: boletim-de-urna -> resultados-ANO-boletim-de-urna"),
-    tamanhos: bool = typer.Option(False, "--tamanhos", help="faz HEAD em cada ZIP para obter o tamanho real"),
-    so_conhecidas: bool = typer.Option(False, "--so-conhecidas", help="só recursos mapeados em TABELAS"),
+    sufixo: str | None = typer.Option(
+        None, help="ex.: boletim-de-urna -> resultados-ANO-boletim-de-urna"
+    ),
+    tamanhos: bool = typer.Option(
+        False, "--tamanhos", help="faz HEAD em cada ZIP para obter o tamanho real"
+    ),
+    so_conhecidas: bool = typer.Option(
+        False, "--so-conhecidas", help="só recursos mapeados em TABELAS"
+    ),
     forcar: bool = typer.Option(False, "--forcar", help="ignora o cache do catálogo"),
     como_json: bool = typer.Option(False, "--json"),
 ):
@@ -64,12 +74,24 @@ def catalogo(
         _imprimir(linhas, True)
         return
     t = Table(title=f"resultados-{ano}{'-' + sufixo if sufixo else ''}: {len(linhas)} recursos")
-    t.add_column("tabela"); t.add_column("nome"); t.add_column("formato"); t.add_column("tamanho", justify="right"); t.add_column("url")
+    t.add_column("tabela")
+    t.add_column("nome")
+    t.add_column("formato")
+    t.add_column("tamanho", justify="right")
+    t.add_column("url")
     for d in linhas:
         tam = d["tamanho"]
-        t.add_row(d["tabela"] or "", d["nome"], str(d["formato"]), tam if isinstance(tam, str) else _mb(tam), d["url"])
+        t.add_row(
+            d["tabela"] or "",
+            d["nome"],
+            str(d["formato"]),
+            tam if isinstance(tam, str) else _mb(tam),
+            d["url"],
+        )
     console.print(t)
-    console.print("[dim]Obs.: o CKAN do TSE não informa tamanho; use --tamanhos para consultar o CDN.[/]")
+    console.print(
+        "[dim]Obs.: o CKAN do TSE não informa tamanho; use --tamanhos para consultar o CDN.[/]"
+    )
 
 
 @app.command()
@@ -77,7 +99,9 @@ def baixar(
     ano: int,
     tabela: str = typer.Option("votacao_candidato_munzona", help=f"uma de {sorted(TABELAS)}"),
     uf: str | None = typer.Option(None, help="UF para tabelas por UF (votacao_secao)"),
-    max_mb: float | None = typer.Option(None, "--max-mb", help="aborta se o arquivo passar deste tamanho"),
+    max_mb: float | None = typer.Option(
+        None, "--max-mb", help="aborta se o arquivo passar deste tamanho"
+    ),
 ):
     """Baixa o ZIP da tabela para data/historico/raw/ANO/ (idempotente, retomável)."""
     from rich.progress import (
@@ -96,7 +120,14 @@ def baixar(
     if TABELAS[tabela]["por_uf"] and not uf:
         err.print("[red]esta tabela exige --uf[/]")
         raise typer.Exit(2)
-    with Progress("[progress.description]{task.description}", BarColumn(), DownloadColumn(), TransferSpeedColumn(), TimeRemainingColumn(), console=err) as prog:
+    with Progress(
+        "[progress.description]{task.description}",
+        BarColumn(),
+        DownloadColumn(),
+        TransferSpeedColumn(),
+        TimeRemainingColumn(),
+        console=err,
+    ) as prog:
         tarefa = prog.add_task(f"{tabela} {ano}", total=None)
 
         def cb(feito: int, total: int | None) -> None:
@@ -121,27 +152,39 @@ def etl(
     uf: str | None = typer.Option(None),
     threads: int | None = typer.Option(None),
     memoria: str | None = typer.Option(None, help="ex.: 4GB (memory_limit do DuckDB)"),
-    ignorar_erros: bool = typer.Option(False, "--ignorar-erros", help="read_csv(ignore_errors=true)"),
+    ignorar_erros: bool = typer.Option(
+        False, "--ignorar-erros", help="read_csv(ignore_errors=true)"
+    ),
     como_json: bool = typer.Option(False, "--json"),
 ):
     """Converte o ZIP baixado em Parquet particionado (ano=/turno=)."""
     from historico.etl import executar_etl
 
     try:
-        r = executar_etl(ano, tabela, uf=uf, threads=threads, memoria=memoria, ignorar_erros=ignorar_erros)
+        r = executar_etl(
+            ano, tabela, uf=uf, threads=threads, memoria=memoria, ignorar_erros=ignorar_erros
+        )
     except FileNotFoundError as e:
         err.print(f"[red]{e}[/]")
         raise typer.Exit(4)
     if como_json:
         console.print_json(json.dumps(r.para_dict(), ensure_ascii=False))
         return
-    console.print(f"[green]{tabela} {ano}[/]: {r.linhas:,} linhas, {r.colunas} colunas, {len(r.particoes)} partições em {r.segundos:.1f}s")
+    console.print(
+        f"[green]{tabela} {ano}[/]: {r.linhas:,} linhas, {r.colunas} colunas, {len(r.particoes)} partições em {r.segundos:.1f}s"
+    )
     for p in r.particoes:
-        console.print(f"  ano={p['ano']} turno={p['turno']}: {p['linhas']:,} linhas -> {p['caminho']}")
+        console.print(
+            f"  ano={p['ano']} turno={p['turno']}: {p['linhas']:,} linhas -> {p['caminho']}"
+        )
     if r.colunas_ausentes:
-        console.print(f"  [yellow]colunas ausentes neste ano (criadas como NULL):[/] {', '.join(r.colunas_ausentes)}")
+        console.print(
+            f"  [yellow]colunas ausentes neste ano (criadas como NULL):[/] {', '.join(r.colunas_ausentes)}"
+        )
     if r.sem_ibge:
-        console.print(f"  [yellow]{r.sem_ibge:,} linhas sem código IBGE (municípios extintos/exterior)[/]")
+        console.print(
+            f"  [yellow]{r.sem_ibge:,} linhas sem código IBGE (municípios extintos/exterior)[/]"
+        )
 
 
 @app.command()
@@ -154,7 +197,15 @@ def pipeline(
 ):
     """baixar + etl em um passo (um comando por ano no backfill)."""
     baixar(ano, tabela=tabela, uf=None, max_mb=max_mb)
-    etl(ano, tabela=tabela, uf=None, threads=threads, memoria=memoria, ignorar_erros=False, como_json=False)
+    etl(
+        ano,
+        tabela=tabela,
+        uf=None,
+        threads=threads,
+        memoria=memoria,
+        ignorar_erros=False,
+        como_json=False,
+    )
 
 
 @app.command()
@@ -162,7 +213,9 @@ def particoes(como_json: bool = typer.Option(False, "--json")):
     """Mostra as partições (ano/turno) presentes no lake."""
     from historico.consulta import particoes_disponiveis
 
-    linhas = [{"tabela": t, "ano": a, "turno": tr} for t in TABELAS for a, tr in particoes_disponiveis(t)]
+    linhas = [
+        {"tabela": t, "ano": a, "turno": tr} for t in TABELAS for a, tr in particoes_disponiveis(t)
+    ]
     _imprimir(linhas, como_json, "partições")
 
 
@@ -170,7 +223,9 @@ def particoes(como_json: bool = typer.Option(False, "--json")):
 def consulta_municipio(
     ano: int,
     turno: int,
-    cargo: str = typer.Argument(..., help="código (1=Presidente, 3=Governador, 11=Prefeito...) ou nome"),
+    cargo: str = typer.Argument(
+        ..., help="código (1=Presidente, 3=Governador, 11=Prefeito...) ou nome"
+    ),
     uf: str | None = typer.Option(None),
     ibge: str | None = typer.Option(None, help="código IBGE de 7 dígitos"),
     tse: str | None = typer.Option(None, help="código TSE de 5 dígitos"),
@@ -180,7 +235,9 @@ def consulta_municipio(
     """Votos por candidato em cada município para ano/turno/cargo."""
     from historico.consulta import resultado_por_municipio
 
-    linhas = resultado_por_municipio(ano, turno, cargo, uf=uf, cd_ibge=ibge, cd_municipio=tse, limite=limite)
+    linhas = resultado_por_municipio(
+        ano, turno, cargo, uf=uf, cd_ibge=ibge, cd_municipio=tse, limite=limite
+    )
     _imprimir(linhas, como_json, f"resultado por município — {ano} t{turno} cargo={cargo}")
 
 
@@ -195,7 +252,11 @@ def consulta_serie(
     """Série histórica (todos os anos do lake) de um município para um cargo."""
     from historico.consulta import serie_historica_municipio
 
-    _imprimir(serie_historica_municipio(ibge, cargo, turno=turno, top=top), como_json, f"série {ibge} cargo={cargo}")
+    _imprimir(
+        serie_historica_municipio(ibge, cargo, turno=turno, top=top),
+        como_json,
+        f"série {ibge} cargo={cargo}",
+    )
 
 
 @consulta_app.command("detalhe")
@@ -223,3 +284,47 @@ def consulta_sql(query: str, como_json: bool = typer.Option(False, "--json")):
 
 if __name__ == "__main__":
     app()
+
+
+@app.command("pesquisas-importar")
+def pesquisas_importar(csv: Path):
+    """Importa um CSV de pesquisas eleitorais para o lake (formato em historico/pesquisas.py)."""
+    from historico.pesquisas import importar_csv
+
+    meta = importar_csv(csv)
+    console.print(f"[green]ok[/] {meta['linhas']} linhas importadas de {meta['origem']}")
+
+
+@app.command("pesquisas")
+def pesquisas_listar(como_json: bool = typer.Option(False, "--json")):
+    """Eleições com pesquisas no lake."""
+    from historico.pesquisas import eleicoes_disponiveis
+
+    _imprimir(eleicoes_disponiveis(), como_json, "pesquisas")
+
+
+@app.command(name="acervo-publicar")
+def acervo_publicar():
+    """Sobe o lake (parquet/ + manifest.json) para o bucket S3/R2 em APURACAO_S3_BUCKET, prefixo historico/."""
+    from historico.sync import publicar
+
+    publicar()
+
+
+@app.command(name="acervo-sincronizar")
+def acervo_sincronizar(
+    url: str | None = typer.Option(None, help="espelho (padrão: APURACAO_ACERVO_URL)"),
+):
+    """Baixa do espelho público o que falta no lake local."""
+    from historico.sync import sincronizar
+
+    n = sincronizar(url)
+    typer.echo(f"{n} arquivo(s) baixado(s)")
+
+
+@app.command(name="acervo-preparar")
+def acervo_preparar(anos: str = typer.Option("2018,2022", help="anos separados por vírgula")):
+    """Espelho → ETL (se APURACAO_ACERVO_ETL=1) → publica. O mesmo que a API faz no boot com APURACAO_ACERVO_ANOS."""
+    from historico.sync import garantir
+
+    garantir([int(a) for a in anos.split(",") if a.strip()])

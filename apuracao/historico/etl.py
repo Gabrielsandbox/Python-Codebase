@@ -19,6 +19,7 @@ Estratégia:
     para que consultas funcionem igual de 1994 a 2026.
   * Adiciona `cd_municipio_ibge` (7 dígitos) via data/ref/tse-municipios-2026.json.
 """
+
 from __future__ import annotations
 
 import json
@@ -120,6 +121,60 @@ COLUNAS_GARANTIDAS: dict[str, dict[str, str]] = {
         "dt_ultima_totalizacao": "DATE",
     },
 }
+# Candidaturas: só o que é público e útil para o histórico político. Dados pessoais sensíveis
+# (CPF, título de eleitor, e-mail) são descartados no ETL e nunca chegam ao lake.
+COLUNAS_GARANTIDAS["consulta_cand"] = {
+    **{
+        k: v
+        for k, v in _COMUNS.items()
+        if k not in ("cd_municipio", "nm_municipio", "nr_zona", "st_voto_em_transito")
+    },
+    "sq_candidato": "VARCHAR",
+    "nr_candidato": "BIGINT",
+    "nm_candidato": "VARCHAR",
+    "nm_urna_candidato": "VARCHAR",
+    "nm_social_candidato": "VARCHAR",
+    "cd_situacao_candidatura": "BIGINT",
+    "ds_situacao_candidatura": "VARCHAR",
+    "cd_detalhe_situacao_cand": "BIGINT",
+    "ds_detalhe_situacao_cand": "VARCHAR",
+    "tp_agremiacao": "VARCHAR",
+    "nr_partido": "BIGINT",
+    "sg_partido": "VARCHAR",
+    "nm_partido": "VARCHAR",
+    "nr_federacao": "BIGINT",
+    "sg_federacao": "VARCHAR",
+    "sq_coligacao": "VARCHAR",
+    "nm_coligacao": "VARCHAR",
+    "ds_composicao_coligacao": "VARCHAR",
+    "sg_uf_nascimento": "VARCHAR",
+    "nm_municipio_nascimento": "VARCHAR",
+    "dt_nascimento": "DATE",
+    "cd_genero": "BIGINT",
+    "ds_genero": "VARCHAR",
+    "cd_grau_instrucao": "BIGINT",
+    "ds_grau_instrucao": "VARCHAR",
+    "cd_estado_civil": "BIGINT",
+    "ds_estado_civil": "VARCHAR",
+    "cd_cor_raca": "BIGINT",
+    "ds_cor_raca": "VARCHAR",
+    "cd_ocupacao": "BIGINT",
+    "ds_ocupacao": "VARCHAR",
+    "st_reeleicao": "VARCHAR",
+    "st_declarar_bens": "VARCHAR",
+    "cd_sit_tot_turno": "BIGINT",
+    "ds_sit_tot_turno": "VARCHAR",
+}
+COLUNAS_EXCLUIR: dict[str, set[str]] = {
+    "consulta_cand": {
+        "nr_cpf_candidato",
+        "nm_email",
+        "ds_email",
+        "nr_titulo_eleitoral_candidato",
+        "nr_processo",
+        "nr_protocolo_candidatura",
+    },
+}
 # Códigos que devem continuar texto (preservam zeros à esquerda / são identificadores).
 _SEMPRE_TEXTO = {"cd_municipio", "sg_ue", "sq_candidato", "sq_coligacao"}
 
@@ -131,10 +186,10 @@ class ResultadoEtl:
     zip: str
     csvs_lidos: list[str]
     linhas: int
-    particoes: list[dict] = field(default_factory=list)   # [{ano, turno, linhas, caminho}]
+    particoes: list[dict] = field(default_factory=list)  # [{ano, turno, linhas, caminho}]
     colunas: int = 0
     colunas_ausentes: list[str] = field(default_factory=list)
-    sem_ibge: int = 0            # linhas com cd_municipio sem correspondência IBGE
+    sem_ibge: int = 0  # linhas com cd_municipio sem correspondência IBGE
     segundos: float = 0.0
 
     def para_dict(self) -> dict:
@@ -142,6 +197,7 @@ class ResultadoEtl:
 
 
 # --------------------------------------------------------------------------- utilidades
+
 
 def normalizar_nome(col: str) -> str:
     c = col.strip().strip('"').lower()
@@ -196,7 +252,9 @@ def localizar_zip(ano: int, tabela: str, uf: str | None = None) -> Path:
     nome = TABELAS[tabela]["arquivo"].format(ano=ano, uf=(uf or "").upper())
     p = RAW_DIR / str(ano) / nome
     if not p.exists():
-        raise FileNotFoundError(f"ZIP não encontrado: {p} (rode `historico baixar {ano} --tabela {tabela}`)")
+        raise FileNotFoundError(
+            f"ZIP não encontrado: {p} (rode `historico baixar {ano} --tabela {tabela}`)"
+        )
     return p
 
 
@@ -219,7 +277,9 @@ def _membros_csv(zf: zipfile.ZipFile) -> list[zipfile.ZipInfo]:
 
 def carregar_ref_municipios(con: duckdb.DuckDBPyConnection, caminho: Path = REF_MUNICIPIOS) -> int:
     """Cria a tabela temporária ref_municipio(cd_tse, cd_ibge, uf, nome)."""
-    con.execute("CREATE OR REPLACE TEMP TABLE ref_municipio(cd_tse VARCHAR, cd_ibge VARCHAR, uf VARCHAR, nome VARCHAR)")
+    con.execute(
+        "CREATE OR REPLACE TEMP TABLE ref_municipio(cd_tse VARCHAR, cd_ibge VARCHAR, uf VARCHAR, nome VARCHAR)"
+    )
     if not caminho.exists():
         return 0
     doc = json.loads(caminho.read_text("utf-8"))
@@ -236,7 +296,9 @@ def carregar_ref_municipios(con: duckdb.DuckDBPyConnection, caminho: Path = REF_
     return len(vistos)
 
 
-def _configurar(con: duckdb.DuckDBPyConnection, threads: int | None, memoria: str | None, tmp: Path) -> None:
+def _configurar(
+    con: duckdb.DuckDBPyConnection, threads: int | None, memoria: str | None, tmp: Path
+) -> None:
     con.execute(f"SET temp_directory = {_lit(str(tmp / 'duckdb_tmp'))}")
     con.execute("SET preserve_insertion_order = false")
     if threads:
@@ -246,6 +308,7 @@ def _configurar(con: duckdb.DuckDBPyConnection, threads: int | None, memoria: st
 
 
 # --------------------------------------------------------------------------- principal
+
 
 def executar_etl(
     ano: int,
@@ -285,14 +348,19 @@ def executar_etl(
             f"encoding='latin-1', all_varchar=true, union_by_name=true, null_padding=true, "
             f"ignore_errors={'true' if ignorar_erros else 'false'})"
         )
-        colunas_raw = [r[0] for r in con.execute(f"DESCRIBE SELECT * FROM {read_csv} LIMIT 0").fetchall()]
+        colunas_raw = [
+            r[0] for r in con.execute(f"DESCRIBE SELECT * FROM {read_csv} LIMIT 0").fetchall()
+        ]
 
         garantidas = COLUNAS_GARANTIDAS.get(tabela, _COMUNS)
         selecao: list[str] = []
         presentes: set[str] = set()
         usados: set[str] = set()
+        excluir = COLUNAS_EXCLUIR.get(tabela, set())
         for raw in colunas_raw:
             nome = normalizar_nome(raw)
+            if nome in excluir:  # dados pessoais sensíveis: nunca entram no lake
+                continue
             if nome in usados:  # colisão improvável após normalização
                 i = 2
                 while f"{nome}_{i}" in usados:
@@ -308,17 +376,22 @@ def executar_etl(
         con.execute(f"CREATE TEMP TABLE stg AS SELECT {', '.join(selecao)} FROM {read_csv}")
         n_ref = carregar_ref_municipios(con)
 
-        con.execute(
-            """
-            CREATE TEMP TABLE final AS
-            SELECT s.*, r.cd_ibge AS cd_municipio_ibge
-            FROM stg s LEFT JOIN ref_municipio r ON s.cd_municipio = r.cd_tse
-            """
-        )
+        if "cd_municipio" in usados:
+            con.execute(
+                """
+                CREATE TEMP TABLE final AS
+                SELECT s.*, r.cd_ibge AS cd_municipio_ibge
+                FROM stg s LEFT JOIN ref_municipio r ON s.cd_municipio = r.cd_tse
+                """
+            )
+        else:  # tabelas sem município (ex.: consulta_cand)
+            con.execute(
+                "CREATE TEMP TABLE final AS SELECT s.*, NULL::VARCHAR AS cd_municipio_ibge FROM stg s"
+            )
         con.execute("DROP TABLE stg")
         total = con.execute("SELECT count(*) FROM final").fetchone()[0]
         sem_ibge = 0
-        if n_ref:
+        if n_ref and "cd_municipio" in usados:
             sem_ibge = con.execute(
                 "SELECT count(*) FROM final WHERE cd_municipio_ibge IS NULL AND cd_municipio IS NOT NULL"
             ).fetchone()[0]
@@ -352,8 +425,17 @@ def executar_etl(
                 "gerado_em": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
                 "duckdb": duckdb.__version__,
             }
-            (destino / "_meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=1), "utf-8")
-            particoes.append({"ano": int(ano_p), "turno": int(turno_p), "linhas": int(n), "caminho": str(final_path)})
+            (destino / "_meta.json").write_text(
+                json.dumps(meta, ensure_ascii=False, indent=1), "utf-8"
+            )
+            particoes.append(
+                {
+                    "ano": int(ano_p),
+                    "turno": int(turno_p),
+                    "linhas": int(n),
+                    "caminho": str(final_path),
+                }
+            )
 
         n_cols = len(con.execute("DESCRIBE final").fetchall())
         con.close()

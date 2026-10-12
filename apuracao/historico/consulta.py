@@ -4,6 +4,7 @@ ou relações DuckDB (`duckdb.DuckDBPyRelation`), à escolha de quem chama.
 Os caminhos usam glob com hive partitioning, logo `ano` e `turno` vêm do diretório:
     data/historico/parquet/{tabela}/ano=*/turno=*/*.parquet
 """
+
 from __future__ import annotations
 
 import re
@@ -79,10 +80,14 @@ def codigo_cargo(cargo: int | str) -> int:
     try:
         return _CARGO_POR_NOME[s.lower()]
     except KeyError:
-        raise ValueError(f"cargo desconhecido: {cargo!r}; use um código ({CARGOS}) ou nome") from None
+        raise ValueError(
+            f"cargo desconhecido: {cargo!r}; use um código ({CARGOS}) ou nome"
+        ) from None
 
 
-def _filtro_municipio(cd_ibge: str | None, cd_municipio: str | None, uf: str | None, alias: str = "v") -> str:
+def _filtro_municipio(
+    cd_ibge: str | None, cd_municipio: str | None, uf: str | None, alias: str = "v"
+) -> str:
     partes = []
     if cd_ibge:
         partes.append(f"{alias}.cd_municipio_ibge = {_lit(str(cd_ibge))}")
@@ -94,6 +99,7 @@ def _filtro_municipio(cd_ibge: str | None, cd_municipio: str | None, uf: str | N
 
 
 # --------------------------------------------------------------------------- consultas
+
 
 def resultado_por_municipio(
     ano: int,
@@ -137,7 +143,7 @@ def resultado_por_municipio(
         SELECT *, round(100.0 * qt_votos / NULLIF(sum(qt_votos) OVER (PARTITION BY cd_municipio), 0), 2) AS pct_nominais
         FROM agg
         ORDER BY sg_uf, cd_municipio, qt_votos DESC
-        {f'LIMIT {int(limite)}' if limite else ''}
+        {f"LIMIT {int(limite)}" if limite else ""}
     """
     rel = con.sql(sql)
     return rel if como_relacao else para_dicts(rel)
