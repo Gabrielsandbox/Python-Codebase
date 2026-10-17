@@ -28,7 +28,7 @@ export default defineConfig({
     rollupOptions: {
       // duas páginas: o app (index.html) e a lista de espera (espera.html); scripts/pos-build.mjs troca
       // as duas de lugar quando VITE_ESPERA=1
-      input: { index: 'index.html', espera: 'espera.html' },
+      input: { index: 'index.html', espera: 'espera.html', politicos: 'politicos.html' },
       output: {
         manualChunks: {
           geo: ['d3-geo', 'topojson-client'],

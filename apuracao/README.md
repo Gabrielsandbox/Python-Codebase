@@ -119,6 +119,19 @@ Webhook do Stripe: `POST /chat/webhook/stripe` (eventos `checkout.session.comple
 `checkout.session.async_payment_succeeded`). O frontend aponta para o serviço por
 `VITE_CHAT_BASE` (padrão `/chat`, com proxy em dev).
 
+## Políticos: "Depois do voto" (página gratuita)
+
+`web/politicos.html` (contrato em `docs/POLITICOS.md`): busca de qualquer candidato de 2026 pelo
+nome ou número de urna e ficha de cada deputado federal e senador em exercício: presença, votos
+nominais, propostas, gastos da cota e patrimônio declarado. Dados da Câmara, do Senado e do TSE,
+gerados 1x por dia como JSON estático.
+
+```bash
+python -m politicos tudo        # baixa (~1,2 GB em data/politicos/raw) e publica em data/latest/politicos
+apuracao servir --port 8000     # serve /dados/politicos/*
+cd web && npm run dev           # http://localhost:5173/politicos.html
+```
+
 ## Fonte e uso dos dados
 
 Dados oficiais do Tribunal Superior Eleitoral (resultados.tse.jus.br e dadosabertos.tse.jus.br),

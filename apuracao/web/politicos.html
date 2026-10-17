@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#e4e9e2" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#121614" media="(prefers-color-scheme: dark)" />
+    <script>
+      // mesma escolha de tema do resto do site (localStorage.tema), antes da 1ª pintura
+      (function () {
+        try {
+          var t = localStorage.getItem('tema');
+          if (t !== 'light' && t !== 'dark') return;
+          document.documentElement.setAttribute('data-theme', t);
+          var cor = t === 'dark' ? '#121614' : '#e4e9e2';
+          var metas = document.querySelectorAll('meta[name="theme-color"]');
+          for (var i = 0; i < metas.length; i++) metas[i].setAttribute('content', cor);
+        } catch (e) {}
+      })();
+    </script>
+    <title>Depois do voto — Apuração ao Vivo</title>
+    <meta name="description" content="Procure qualquer candidato de 2026 pelo nome ou pelo número de urna. Presença, votos, propostas e gastos de deputados federais e senadores, com dados oficiais da Câmara, do Senado e do TSE." />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Apuração ao Vivo" />
+    <meta property="og:title" content="Depois do voto: o que faz quem você elegeu" />
+    <meta property="og:description" content="Presença, votos, propostas e gastos de cada parlamentar. Dados oficiais, de graça." />
+    <meta property="og:locale" content="pt_BR" />
+    <link rel="icon" href="/icons/icon.svg" type="image/svg+xml" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&display=swap" />
+  </head>
+  <body class="pol">
+    <a class="pol-skip" href="#conteudo">Ir para o conteúdo</a>
+    <header class="pol-topo">
+      <a class="pol-marca" href="/">Apuração ao Vivo</a>
+      <nav class="pol-nav" aria-label="Seções do site">
+        <a href="/">Apuração</a>
+        <a href="/politicos.html" aria-current="page">Políticos</a>
+      </nav>
+      <div id="tema-slot"></div>
+    </header>
+    <main id="conteudo" class="pol-main" aria-busy="true"></main>
+    <footer class="pol-rodape">
+      <p>Dados abertos da Câmara dos Deputados, do Senado Federal e do Tribunal Superior Eleitoral, atualizados uma vez por dia. Nada aqui é opinião: cada número tem um link para a fonte oficial.</p>
+      <p id="rodape-atualizado"></p>
+    </footer>
+    <script type="module" src="/src/politicos/main.ts"></script>
+  </body>
+</html>
