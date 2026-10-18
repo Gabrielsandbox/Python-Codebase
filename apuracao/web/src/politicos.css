@@ -386,3 +386,6 @@ body.pol {
 .plano-trecho { color: var(--tinta-2); margin-top: 4px !important; overflow-wrap: anywhere; }
 .plano-trecho mark { background: var(--tecla); color: var(--papel); padding: 0 2px; border-radius: 2px; }
 .plano-corpo .nota { margin-top: 18px; }
+.plano-pdf p { margin: 0 0 4px; font-weight: 400; }
+.plano-partes { margin: 0; padding-left: 1.4em; }
+.plano-partes li { padding: 2px 0; }

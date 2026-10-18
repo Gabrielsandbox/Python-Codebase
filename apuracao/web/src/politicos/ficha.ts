@@ -51,6 +51,12 @@ function cargoGenero(cargo: string, fem: boolean): string {
   return cargo.replace(/^Deputado\b/, 'Deputada').replace(/^Governador\b/, 'Governadora').replace(/^Senador\b/, 'Senadora');
 }
 
+/** "Não eleito" -> "Não eleita" quando a ficha é de uma mulher. */
+function situacao(c: Candidatura, fem: boolean): string {
+  const txt = SITUACAO[c.situacao];
+  return fem ? txt.replace(/\b(E|e)leito\b/, '$1leita') : txt;
+}
+
 function secao(id: string, titulo: string, ...filhos: (Node | string | null | false)[]): HTMLElement {
   return el('section', { class: 'ficha-secao', id, 'aria-labelledby': `${id}-t` }, el('h2', { id: `${id}-t` }, titulo), ...filhos);
 }
@@ -288,7 +294,7 @@ function candidatura(f: Ficha, c: Candidatura | null): HTMLElement {
     ['Partido', `${c.partido_nome} (${c.partido})`],
   ];
   if (c.coligacao || c.composicao) linhas.push([c.coligacao ? 'Coligação' : 'Federação', [c.coligacao, c.composicao].filter(Boolean).join(': ')]);
-  linhas.push(['Resultado', el('span', { class: `sit sit--${c.situacao || 'sem'}` }, SITUACAO[c.situacao])]);
+  linhas.push(['Resultado', el('span', { class: `sit sit--${c.situacao || 'sem'}` }, situacao(c, fem))]);
   if (c.ocupacao) linhas.push(['Ocupação declarada', c.ocupacao]);
   if (c.instrucao) linhas.push(['Escolaridade', c.instrucao]);
 
@@ -340,7 +346,7 @@ export function montarFicha(f: Ficha): HTMLElement {
             'p',
             {},
             `${fem ? 'Candidata' : 'Candidato'} a ${cargoGenero(c.cargo_nome, fem).toLowerCase()}${c.uf && c.uf !== 'BR' ? ` (${c.uf})` : ''} em 2026. `,
-            el('span', { class: `sit sit--${c.situacao || 'sem'}` }, SITUACAO[c.situacao]),
+            el('span', { class: `sit sit--${c.situacao || 'sem'}` }, situacao(c, fem)),
           ),
         )
       : null,

@@ -111,7 +111,7 @@ export interface Candidatura {
 
 export interface PlanoResumo {
   json: string; // caminho relativo a /politicos
-  pdf: string; // primeira (quase sempre única) parte do PDF
+  partes: { pdf: string; paginas: number; bytes: number }[]; // quase sempre uma; o TSE aceita várias
   paginas: number;
   bytes: number;
 }

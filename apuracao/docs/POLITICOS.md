@@ -24,7 +24,7 @@ mesmo bucket/CDN dos snapshots, prefixo `politicos/`. O frontend lê `${VITE_DAD
 | Senado, API | senadores em exercício, detalhe, votações nominais desde 02/2023, autorias | 1 + 3×81 chamadas, em cache |
 | Senado, CEAPS | reembolsos 2023–2026 (CSV latin-1) | `senado.leg.br/transparencia/LAI/verba` |
 | TSE | candidaturas 2026 e bens declarados | `consulta_cand_2026.zip`, `bem_candidato_2026.zip` |
-| TSE | plano de governo de quem concorre a presidente (PDF) | `proposta_governo_2026_BR.zip` (18 MB, 14 PDFs); leitura com `pypdf` (extra `politicos`) |
+| TSE | plano de governo de presidente e governador (PDF) | `proposta_governo_2026_{BR,UF}.zip` (28 arquivos, ~300 MB, 215 planos); leitura com `pypdf` (extra `politicos`) |
 
 **Cruzamento** mandato × candidatura: CPF (Câmara e TSE publicam); senão nome civil + data de
 nascimento (Senado). CPF e nome de cruzamento nunca saem nos arquivos públicos. Em out/2026:
@@ -55,7 +55,8 @@ deputados que não concorreram ou foram só vice/suplente.
     "cargo", "cargo_nome", "uf", "numero", "partido", "partido_nome", "coligacao", "composicao",
     "situacao", "segundo_turno", "ocupacao", "instrucao", "genero", "nascimento",
     "bens": { "total", "quantidade", "maiores": [{ "tipo", "descricao", "valor" }] },  // até 12
-    "plano": null | { "json": "planos/{id}.json", "pdf": "planos/{id}_01.pdf", "paginas", "bytes" }
+    "plano": null | { "json": "planos/{id}.json", "paginas", "bytes",
+                      "partes": [{ "pdf": "planos/{id}_01.pdf", "paginas", "bytes" }] }   // o TSE aceita o plano em vários PDFs
   },
   "mandato": null | {
     "casa": "camara|senado", "cargo", "nome", "partido", "uf", "foto", "condicao", "url", "email", "redes",
@@ -91,7 +92,9 @@ O PDF oficial (`{id}_{parte}.pdf`, como o TSE publica) e `{id}.json`, baixado s�
 (o número impresso costuma não bater: capa, páginas sem número); um índice remissivo logo depois é
 cortado quando os números param de crescer. Sem sumário próprio, títulos pelo estilo (fonte ≥ 1,25×
 o corpo ou linha toda em negrito), sem cabeçalhos repetidos, até 40 entradas. Nada é resumido nem
-reescrito. **Busca** (no navegador): sem acento e sem caixa, a partir do início da palavra; termo de
+reescrito. A leitura roda em paralelo e fica em cache por conteúdo do PDF
+(`data/politicos/raw/planos-cache/`, invalidado por `planos.VERSAO`): ~2,5 min na primeira vez, o
+`gerar` diário volta a ~25 s. PDF escaneado (sem texto) só tem o link; a página explica. **Busca** (no navegador): sem acento e sem caixa, a partir do início da palavra; termo de
 até 4 letras (sigla: SUS, INSS) só como palavra inteira.
 
 ## Decisões e limites (o texto da página diz cada um)
@@ -105,8 +108,9 @@ até 4 letras (sigla: SUS, INSS) só como palavra inteira.
   Sim e Não não têm cor de "certo/errado" na página.
 - **Propostas**: desde 02/2023. A lista mostra o que o parlamentar apresentou como 1º autor e as
   PECs que assinou junto (uma PEC precisa de 1/3 da casa).
-- **Plano de governo**: só presidente por enquanto. Governadores usam o mesmo formato
-  (`proposta_governo_2026_{UF}.zip`); falta baixar os 27 arquivos. O texto extraído pode trazer
+- **Plano de governo**: 14 presidenciáveis e 200 de 201 candidatos a governador (o TSE não publicou
+  o de uma candidata em SP). Em out/2026: 6 PDFs escaneados (sem busca), 19 sem títulos reconhecíveis
+  (só busca), sumário de folhetos com frases de capa em destaque. O texto extraído pode trazer
   tabelas e colunas fora de ordem e espaços dentro de palavras ("CUL TURA"); a página avisa que vale o PDF.
 - **Fora por enquanto**: Executivo (mandato de presidente e governadores), deputados estaduais e vereadores
   (cada Assembleia publica de um jeito), parlamentares que já saíram, foto de quem não tem mandato.

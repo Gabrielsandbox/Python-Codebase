@@ -27,3 +27,7 @@ LEGISLATURA = 57
 INICIO_LEGISLATURA = "2023-02-01"
 ANOS = (2023, 2024, 2025, 2026)
 ANOS_VOTOS = (2025, 2026)
+UFS = (
+    "AC", "AL", "AM", "AP", "BA", "CE", "DF", "ES", "GO", "MA", "MG", "MS", "MT", "PA",
+    "PB", "PE", "PI", "PR", "RJ", "RN", "RO", "RR", "RS", "SC", "SE", "SP", "TO",
+)

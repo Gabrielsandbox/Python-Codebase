@@ -3,7 +3,7 @@
 Saída em OUT_DIR (docs/POLITICOS.md):
   indice.json   todos os nomes pesquisáveis, em linhas compactas
   p/{id}.json   ficha de cada político
-  planos/       plano de governo de quem concorre a presidente: PDF oficial + {id}.json (texto)
+  planos/       plano de governo (presidente e governador): PDF oficial + {id}.json (texto)
 
 Cruzamento: CPF quando a fonte publica (Câmara e TSE); senão nome civil + data de nascimento.
 CPF e nome de cruzamento nunca saem nos arquivos públicos.
@@ -13,6 +13,7 @@ from __future__ import annotations
 import logging
 import os
 import shutil
+import zipfile
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -77,25 +78,28 @@ def cruzar(cands: dict[str, tse.Candidatura], mandatos: list[tuple[str, dict]]) 
     return ligados
 
 
-def publicar_planos(lidos: dict[str, list[tuple[str, bytes, planos.Documento]]], agora: str) -> dict[str, dict]:
+def publicar_planos(lidos: dict[str, list[planos.Parte]], agora: str) -> dict[str, dict]:
     """Grava planos/{arquivo}.pdf e planos/{sq}.json; devolve o resumo que entra na ficha."""
     pasta = OUT_DIR / "planos"
     if pasta.exists():
         shutil.rmtree(pasta)
+    pasta.mkdir(parents=True)
     resumos = {}
     for sq, partes in lidos.items():
         docs = []
-        for nome, pdf, doc in partes:
-            destino = pasta / nome
-            destino.parent.mkdir(parents=True, exist_ok=True)
-            destino.write_bytes(pdf)
-            docs.append({"pdf": f"planos/{nome}", "bytes": len(pdf), "paginas": doc.paginas, "titulos": doc.titulos})
+        for parte in partes:
+            with zipfile.ZipFile(parte.zip) as z, z.open(parte.membro) as origem, (pasta / parte.nome).open("wb") as destino:
+                shutil.copyfileobj(origem, destino)
+            docs.append({
+                "pdf": f"planos/{parte.nome}", "bytes": parte.bytes,
+                "paginas": parte.doc.paginas, "titulos": parte.doc.titulos,
+            })
         _gravar(pasta / f"{sq}.json", {
             "schema": SCHEMA, "id": sq, "documentos": docs, "atualizado_em": agora, "fonte": FONTE_PLANO,
         })
         resumos[sq] = {
             "json": f"planos/{sq}.json",
-            "pdf": docs[0]["pdf"],
+            "partes": [{"pdf": d["pdf"], "paginas": len(d["paginas"]), "bytes": d["bytes"]} for d in docs],
             "paginas": sum(len(d["paginas"]) for d in docs),
             "bytes": sum(d["bytes"] for d in docs),
         }

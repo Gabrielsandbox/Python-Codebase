@@ -95,3 +95,20 @@ def test_titulos_por_estilo_ignora_cabecalho_e_repete_titulo_de_capitulo_uma_vez
     paginas += [[Linha("PROGRAMA DE GOVERNO", 9.0, True), *_corpo()] for _ in range(14)]
     assert titulos_por_estilo(paginas) == [{"t": "ECONOMIA", "p": 1}, {"t": "SAÚDE", "p": 4}]
     assert titulos(paginas) == titulos_por_estilo(paginas)  # sem sumário próprio, vale o estilo
+
+
+def test_sumario_proprio_varios_titulos_na_mesma_pagina_e_item_antes_do_sumario():
+    paginas = [
+        [Linha("Apresentação", 18.0, True), *_corpo()],
+        [
+            Linha("Apresentação ........ 1", 11.0, False),
+            Linha("1. Saúde ........ 3", 11.0, False),
+            Linha("1.1 Atenção básica ........ 3", 11.0, False),
+            Linha("2. Educação ........ 4", 11.0, False),
+        ],
+        [Linha("1. Saúde", 18.0, True), Linha("1.1 Atenção básica", 14.0, True), *_corpo()],
+        [Linha("2. Educação", 18.0, True), Linha("menciona 1.1 Atenção básica de novo", 11.0, False)],
+    ]
+    assert [(t["t"], t["p"]) for t in sumario_proprio(paginas)] == [
+        ("Apresentação", 1), ("1. Saúde", 3), ("1.1 Atenção básica", 3), ("2. Educação", 4),
+    ]

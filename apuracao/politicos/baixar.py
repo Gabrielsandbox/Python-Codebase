@@ -15,7 +15,7 @@ from pathlib import Path
 import httpx
 import orjson
 
-from politicos import ANOS, ANOS_VOTOS, INICIO_LEGISLATURA, RAW_DIR
+from politicos import ANOS, ANOS_VOTOS, INICIO_LEGISLATURA, RAW_DIR, UFS
 
 log = logging.getLogger(__name__)
 
@@ -41,7 +41,10 @@ def arquivos_em_massa() -> dict[str, str]:
             a[f"{tabela}-{ano}.json"] = f"{CAMARA_ARQ}/{tabela}/json/{tabela}-{ano}.json"
     a["consulta_cand_2026.zip"] = f"{TSE_CDN}/consulta_cand/consulta_cand_2026.zip"
     a["bem_candidato_2026.zip"] = f"{TSE_CDN}/bem_candidato/bem_candidato_2026.zip"
-    a["proposta_governo_2026_BR.zip"] = f"{TSE_CDN}/proposta_governo/proposta_governo_2026_BR.zip"
+    # plano de governo: BR = presidente, UF = governador (~300 MB no total)
+    for uf in ("BR", *UFS):
+        nome = f"proposta_governo_2026_{uf}.zip"
+        a[nome] = f"{TSE_CDN}/proposta_governo/{nome}"
     return a
 
 

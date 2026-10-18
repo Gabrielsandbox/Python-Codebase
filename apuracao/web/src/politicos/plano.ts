@@ -11,6 +11,7 @@ const TRECHOS_POR_PAGINA = 2;
 const MARGEM = 90; // caracteres de contexto de cada lado
 const PALAVRA_INTEIRA_ATE = 4; // "SUS" não acha "sustentável"; "imposto" acha "impostos"
 const SUMARIO_INICIAL_FOLGA = 4; // não esconde só 2 ou 3 títulos atrás de um botão
+const MIN_TEXTO_POR_PAGINA = 40; // abaixo disso o PDF é imagem (escaneado)
 
 const fmtMb = (b: number) => `${(b / 1e6).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} MB`;
 const plural = (n: number, um: string, varios: string) => `${n.toLocaleString('pt-BR')} ${n === 1 ? um : varios}`;
@@ -210,10 +211,37 @@ function busca(plano: Plano): HTMLElement {
 }
 
 /** Corpo da seção "Plano de governo"; o texto (100–300 KB) só é baixado quando a ficha abre. */
+/** Documento escaneado (imagem): quase nenhum texto por página, nada para sumário nem busca. */
+const escaneado = (plano: Plano) => {
+  const paginas = plano.documentos.flatMap((d) => d.paginas);
+  return paginas.reduce((n, t) => n + t.length, 0) < MIN_TEXTO_POR_PAGINA * paginas.length;
+};
+
+function linksPdf(r: PlanoResumo): HTMLElement {
+  const info = (paginas: number, bytes: number) => el('span', { class: 'nota' }, ` ${plural(paginas, 'página', 'páginas')}, ${fmtMb(bytes)}`);
+  if (r.partes.length === 1) {
+    return el('p', { class: 'plano-pdf' }, fora(urlDados(r.partes[0].pdf), 'Abrir o PDF oficial'), info(r.paginas, r.bytes));
+  }
+  return el(
+    'div',
+    { class: 'plano-pdf' },
+    el('p', {}, `O plano foi entregue ao TSE em ${r.partes.length} arquivos:`),
+    el('ol', { class: 'plano-partes' }, ...r.partes.map((x, i) => el('li', {}, fora(urlDados(x.pdf), `Parte ${i + 1}`), info(x.paginas, x.bytes)))),
+  );
+}
+
+/** Corpo da seção "Plano de governo"; o texto (100–300 KB) só é baixado quando a ficha abre. */
 export function montarPlano(r: PlanoResumo, nome: string): HTMLElement[] {
   const corpo = el('div', { class: 'plano-corpo' }, el('p', { class: 'carregando' }, 'Carregando o sumário…'));
+  const umPdf = r.partes.length === 1 ? 'O PDF continua disponível no link acima.' : 'Os PDFs continuam disponíveis nos links acima.';
   carregarPlano(r)
     .then((plano) => {
+      if (escaneado(plano)) {
+        corpo.replaceChildren(
+          el('p', { class: 'aviso' }, `Este plano foi entregue como imagem (documento escaneado): não tem texto para montar o sumário nem para a busca. ${umPdf}`),
+        );
+        return;
+      }
       corpo.replaceChildren(
         el('h3', {}, 'Sumário'),
         sumario(plano),
@@ -227,7 +255,7 @@ export function montarPlano(r: PlanoResumo, nome: string): HTMLElement[] {
       );
     })
     .catch(() => {
-      corpo.replaceChildren(el('p', {}, 'Não foi possível carregar o sumário e a busca. O PDF continua disponível no link acima.'));
+      corpo.replaceChildren(el('p', {}, `Não foi possível carregar o sumário e a busca. ${umPdf}`));
     });
   return [
     el(
@@ -235,12 +263,7 @@ export function montarPlano(r: PlanoResumo, nome: string): HTMLElement[] {
       {},
       `Documento que ${nome} registrou no TSE com o pedido de candidatura. Abaixo estão os títulos do próprio documento e uma busca no texto. O site não resume nem comenta o plano.`,
     ),
-    el(
-      'p',
-      { class: 'plano-pdf' },
-      fora(urlDados(r.pdf), 'Abrir o PDF oficial'),
-      el('span', { class: 'nota' }, ` ${plural(r.paginas, 'página', 'páginas')}, ${fmtMb(r.bytes)}`),
-    ),
+    linksPdf(r),
     corpo,
   ];
 }

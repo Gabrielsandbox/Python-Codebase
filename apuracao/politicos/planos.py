@@ -1,4 +1,4 @@
-"""Plano de governo que cada candidato ao Executivo registra no TSE (PDF, Lei 9.504/97 art. 11).
+"""Plano de governo que cada candidato a presidente e governador registra no TSE (PDF, Lei 9.504/97 art. 11).
 
 O PDF oficial é publicado como está (é o que vale) e, ao lado, um JSON com o texto de cada
 página e os títulos encontrados, para o sumário e a busca da página. Nada é resumido nem
@@ -20,20 +20,27 @@ Os PDFs (dados NÃO confiáveis) só são lidos pelo pypdf; erro em um arquivo n
 """
 from __future__ import annotations
 
+import hashlib
 import io
 import logging
 import re
 import zipfile
 from collections import Counter, defaultdict
+from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
+
+import orjson
 
 from politicos import RAW_DIR
 from politicos.texto import chave
 
 log = logging.getLogger(__name__)
 
-ZIP = "proposta_governo_2026_BR.zip"
+# um arquivo por eleição: BR (presidente) e um por UF (governador)
+ZIP_GLOB = "proposta_governo_2026_*.zip"
+CACHE_DIR = RAW_DIR / "planos-cache"
+VERSAO = 4  # mude quando a regra de leitura mudar: invalida o cache
 # 2026BR280002542548_01.pdf -> SQ_CANDIDATO e parte (o TSE aceita o plano em mais de um arquivo)
 _NOME = re.compile(r"(?:^|/)\d{4}[A-Z]{2}(\d+)_(\d+)\.pdf$", re.IGNORECASE)
 MAX_TITULOS = 40
@@ -44,6 +51,7 @@ _LINHA_SUMARIO = re.compile(r"(\.\s*){4,}\s*\d*\s*$|…{2,}")
 _LETRA = re.compile(r"[^\W\d_]", re.UNICODE)
 _ITEM_SUMARIO = re.compile(r"^(.*?)\s*(?:(?:\.\s*){4,}|…{2,})\s*(\d{1,3})?\s*$")
 MIN_ITENS_SUMARIO = 3
+TOLERANCIA_PAGINA = 3  # páginas de folga entre o achado no corpo e o número impresso
 _GLIFO = re.compile(r"/gid\d|/uni[0-9A-F]{4}|\(cid:\d+\)")  # fonte sem mapa de caracteres
 CABECALHO = 0.3  # fração das páginas
 
@@ -76,6 +84,10 @@ def _linhas(pagina) -> list[Linha]:
 
     def fecha() -> None:
         texto = _espacos("".join(t for t, _, _ in trechos))
+        # a linha inteira desenhada duas vezes: "O SOCIALISMO O SOCIALISMO"
+        metade = len(texto) // 2
+        if texto and len(texto) % 2 and texto[metade] == " " and texto[:metade] == texto[metade + 1:]:
+            texto = texto[:metade]
         if texto:
             # tamanho e negrito de quem tem mais caracteres na linha
             peso: Counter[tuple[float, bool]] = Counter()
@@ -93,7 +105,7 @@ def _linhas(pagina) -> list[Linha]:
         for i, parte in enumerate(texto.split("\n")):
             if i:
                 fecha()
-            if parte and not (trechos and trechos[-1][0] == parte):
+            if parte and not (trechos and trechos[-1][0].strip() == parte.strip()):
                 trechos.append((parte, efetivo, negrito))
 
     pagina.extract_text(visitor_text=visitante)
@@ -144,30 +156,38 @@ def sumario_proprio(paginas: list[list[Linha]]) -> list[dict]:
     if len(itens) < MIN_ITENS_SUMARIO:
         return []
 
-    fim_sumario = max(p for p, _, _ in itens)
+    paginas_sumario = {p for p, _, _ in itens}
+    inicio_sumario, fim_sumario = min(paginas_sumario), max(paginas_sumario)
     chaves = [[chave(ln.texto) for ln in linhas] for linhas in paginas]
 
-    def onde(titulo: str, depois_de: int) -> int | None:
+    def onde(titulo: str, desde: int) -> int | None:
         k = chave(titulo)[:48]
-        for p in range(max(depois_de, fim_sumario) + 1, len(paginas) + 1):
+        for p in range(desde, len(paginas) + 1):
+            if p in paginas_sumario:
+                continue
             for c in chaves[p - 1]:
                 # título longo pode quebrar em duas linhas no corpo
                 if c.startswith(k) or (len(c) >= 12 and k.startswith(c)):
                     return p
         return None
 
+    # em ordem: cada título é procurado a partir da página do anterior (vários cabem na mesma);
+    # o que o sumário põe antes dele mesmo (apresentação, sumário executivo) é procurado do início
     achados: list[tuple[str, int | None, int | None]] = []
     ultimo = 0
     for _, titulo, impressa in itens:
-        p = onde(titulo, ultimo)
+        antes = not ultimo and impressa is not None and impressa < inicio_sumario
+        p = onde(titulo, ultimo or (1 if antes else fim_sumario + 1))
         achados.append((titulo, p, impressa))
         ultimo = p or ultimo
-    # quem não foi achado no corpo usa a página impressa + a diferença típica do documento
+    # diferença típica entre a página do arquivo e a impressa; achado que destoa dela foi uma
+    # menção ao título no corpo, não o título: vale a página impressa
     difs = sorted(p - i for _, p, i in achados if p and i)
     dif = difs[len(difs) // 2] if difs else 0
     out = []
     for titulo, p, impressa in achados:
-        p = p or (impressa + dif if impressa else None)
+        if impressa is not None and (p is None or abs(p - impressa - dif) > TOLERANCIA_PAGINA):
+            p = impressa + dif
         if p and 1 <= p <= len(paginas):
             out.append({"t": titulo[:MAX_LEN_TITULO], "p": p})
     return out if len(out) >= MIN_ITENS_SUMARIO else []
@@ -200,9 +220,11 @@ def titulos_por_estilo(paginas: list[list[Linha]]) -> list[dict]:
         for ln in linhas:
             destaque = ln.tamanho >= corpo * ESCALA_TITULO or (ln.negrito and ln.tamanho >= corpo * 0.95)
             letras = len(_LETRA.findall(ln.texto))
+            primeira = _LETRA.search(ln.texto)
             ok = (
                 destaque
                 and letras >= 3
+                and not (primeira and primeira.group().islower())  # frase do corpo, não título
                 and letras >= len(ln.texto.replace(" ", "")) / 2
                 and not _GLIFO.search(ln.texto)
                 and repetidas[forma(ln.texto)] < cabecalho
@@ -214,6 +236,8 @@ def titulos_por_estilo(paginas: list[list[Linha]]) -> list[dict]:
                 continue
             # título em duas ou mais linhas seguidas, mesmo estilo
             if anterior and anterior[1:3] == (ln.tamanho, ln.negrito) and len(anterior[3]) + len(ln.texto) < MAX_LEN_TITULO:
+                if anterior[3].lower().endswith(ln.texto.lower()):
+                    continue  # a mesma linha desenhada de novo (sombra)
                 anterior = (p, ln.tamanho, ln.negrito, f"{anterior[3]} {ln.texto}")
                 candidatos[-1] = anterior
             else:
@@ -259,25 +283,54 @@ def ler_pdf(dados: bytes) -> Documento:
     return Documento(paginas=[_texto_pagina(ls) for ls in paginas], titulos=titulos(paginas))
 
 
-def carregar(zip_path: Path | None = None) -> dict[str, list[tuple[str, bytes, Documento]]]:
-    """SQ_CANDIDATO -> partes em ordem: (nome do arquivo, PDF, documento lido)."""
-    zip_path = zip_path or RAW_DIR / ZIP
-    if not zip_path.exists():
-        log.warning("%s não encontrado: fichas sem plano de governo", zip_path.name)
-        return {}
+@dataclass
+class Parte:
+    nome: str  # "{sq}_{parte}.pdf", como sai em planos/
+    zip: Path
+    membro: str
+    bytes: int
+    doc: Documento
+
+
+def _cache(dados: bytes) -> Path:
+    return CACHE_DIR / f"{hashlib.sha256(dados).hexdigest()}-v{VERSAO}.json"
+
+
+def _ler(zip_path: Path, membro: str) -> tuple[int, Documento]:
+    """Lê uma parte (roda em outro processo). PDF igual ao de ontem sai do cache."""
     logging.getLogger("pypdf").setLevel(logging.ERROR)  # avisos de PDF malformado são esperados
-    planos: dict[str, list[tuple[str, bytes, Documento]]] = defaultdict(list)
     with zipfile.ZipFile(zip_path) as z:
-        for nome in sorted(z.namelist()):
-            m = _NOME.search(nome)
-            if not m:
-                continue
-            sq, parte = m.group(1), m.group(2)
-            dados = z.read(nome)
-            try:
-                doc = ler_pdf(dados)
-            except Exception as e:  # noqa: BLE001 — idem: o PDF ainda é publicado
-                log.warning("plano de %s ilegível (%s): só o PDF vai para a ficha", sq, e)
-                doc = Documento(paginas=[])
-            planos[sq].append((f"{sq}_{parte}.pdf", dados, doc))
+        dados = z.read(membro)
+    cache = _cache(dados)
+    if cache.exists():
+        bruto = orjson.loads(cache.read_bytes())
+        return len(dados), Documento(paginas=bruto["paginas"], titulos=bruto["titulos"])
+    try:
+        doc = ler_pdf(dados)
+    except Exception as e:  # noqa: BLE001 — idem: o PDF ainda é publicado
+        log.warning("%s ilegível (%s): só o PDF vai para a ficha", membro, e)
+        doc = Documento(paginas=[])
+    cache.parent.mkdir(parents=True, exist_ok=True)
+    cache.write_bytes(orjson.dumps({"paginas": doc.paginas, "titulos": doc.titulos}))
+    return len(dados), doc
+
+
+def carregar(zips: list[Path] | None = None) -> dict[str, list[Parte]]:
+    """SQ_CANDIDATO -> partes do plano em ordem (presidente: arquivo BR; governador: um por UF)."""
+    zips = zips if zips is not None else sorted(RAW_DIR.glob(ZIP_GLOB))
+    if not zips:
+        log.warning("nenhum %s em %s: fichas sem plano de governo", ZIP_GLOB, RAW_DIR)
+        return {}
+    tarefas: list[tuple[str, str, Path, str]] = []  # (sq, nome publicado, zip, membro)
+    for zip_path in zips:
+        with zipfile.ZipFile(zip_path) as z:
+            for membro in sorted(z.namelist()):
+                m = _NOME.search(membro)
+                if m:
+                    tarefas.append((m.group(1), f"{m.group(1)}_{m.group(2)}.pdf", zip_path, membro))
+    planos: dict[str, list[Parte]] = defaultdict(list)
+    with ProcessPoolExecutor() as pool:
+        lidos = pool.map(_ler, [t[2] for t in tarefas], [t[3] for t in tarefas], chunksize=4)
+        for (sq, nome, zip_path, membro), (tamanho, doc) in zip(tarefas, lidos, strict=True):
+            planos[sq].append(Parte(nome, zip_path, membro, tamanho, doc))
     return dict(planos)
