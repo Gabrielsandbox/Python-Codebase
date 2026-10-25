@@ -129,7 +129,15 @@ def etl_ano(ano: int, log: Log = print, memoria: str | None = None) -> None:
         log(f"[{ano}] baixando {tabela}…")
         _, res = baixar_tabela(ano, tabela)
         log(f"[{ano}] convertendo {tabela}…")
-        r = executar_etl(ano, tabela, zip_path=res.caminho, memoria=memoria)
+        try:
+            r = executar_etl(ano, tabela, zip_path=res.caminho, memoria=memoria)
+        except Exception as e:  # noqa: BLE001 — CSV fora do padrão (aspas abertas etc.): relê pulando as linhas ruins
+            if "CSV Error" not in str(e):
+                raise
+            log(
+                f"[{ano}] {tabela}: CSV fora do padrão ({str(e).splitlines()[0][:120]}); relendo com ignore_errors"
+            )
+            r = executar_etl(ano, tabela, zip_path=res.caminho, memoria=memoria, ignorar_erros=True)
         log(f"[{ano}] {tabela}: {r.linhas:,} linhas em {r.segundos:.0f}s")
         res.caminho.unlink(missing_ok=True)
     shutil.rmtree(RAW_DIR / "_tmp", ignore_errors=True)
@@ -149,8 +157,15 @@ def garantir(anos: list[int], log: Log = print) -> None:
     if os.environ.get("APURACAO_ACERVO_ETL") != "1":
         log(f"acervo: faltam {faltam}; defina APURACAO_ACERVO_ETL=1 para rodar o ETL aqui")
         return
+    falhas: list[int] = []
     for ano in faltam:
-        etl_ano(ano, log=log, memoria=os.environ.get("APURACAO_ACERVO_MEMORIA"))
+        try:
+            etl_ano(ano, log=log, memoria=os.environ.get("APURACAO_ACERVO_MEMORIA"))
+        except Exception as e:  # noqa: BLE001 — um ano com problema não derruba os outros
+            falhas.append(ano)
+            log(f"acervo: ETL de {ano} falhou: {e.__class__.__name__}: {str(e)[:300]}")
+    if falhas:
+        log(f"acervo: anos com falha: {falhas}; os demais ficaram disponíveis")
     if os.environ.get("APURACAO_S3_BUCKET"):
         try:
             publicar(log=log)
