@@ -135,6 +135,18 @@ do coletor) o serviço publica o lake em `historico/` no bucket, e os próximos 
 sincronizam (`manifest.json`), sem ETL. Domínio: `api.apuracaoaovivo.com` (CNAME proxied, como o
 chat). Health: `GET /api/v1/acervo/estado` lista os anos carregados.
 
+### Conta da plataforma (criar conta / entrar)
+
+`/acervo` só abre com conta: a página mostra o "portão" (o que há dentro + formulário) e, com
+sessão, as abas. Criar conta = `POST /conta/cadastro` (e-mail + nome) no serviço do chat, que cria
+a conta e manda um link de acesso de uso único (30 min) por e-mail; "Já tenho conta" =
+`POST /conta/login`. A sessão é a mesma do chat (localStorage), 365 dias. **Enquanto
+`RESEND_API_KEY` não estiver definida no serviço chat, o link volta na resposta e o site entra
+direto, sem confirmar o e-mail** (comportamento do modo `dev`). Para o e-mail ser verificado de
+verdade: crie a chave em resend.com com o domínio `apuracaoaovivo.com` verificado, cole
+`RESEND_API_KEY` e `EMAIL_DE=Apuração ao Vivo <conta@apuracaoaovivo.com>` no serviço chat.
+Entrar com Google aparece quando `VITE_GOOGLE_CLIENT_ID` (build) e `GOOGLE_CLIENT_ID` (chat) existem.
+
 ## 3d. Lançamento 100% gratuito (25/10/2026)
 
 O site foi ao ar sem cobrança: `VITE_ESPERA=0` (apuração na raiz) e `VITE_CHAT_GRATIS=1` em

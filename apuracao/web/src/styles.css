@@ -3010,4 +3010,9 @@ table.uf th .short {
     padding: 9px 5px;
   }
 }
+.atalhos a.ext {
+  background: var(--ink);
+  color: var(--bg);
+  border-color: var(--ink);
+}
 

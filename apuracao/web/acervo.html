@@ -22,15 +22,17 @@
     <div id="app" class="acervo-app">
       <header class="topbar" id="topbar">
         <div class="topbar-inner acervo-top">
-          <div class="brand"><h1>Acervo</h1><span class="sub">Apuração ao Vivo · dados oficiais do TSE</span></div>
+          <div class="brand"><a class="ac-home" href="/" aria-label="Apuração ao Vivo"><h1>Acervo</h1></a><span class="sub">Apuração ao Vivo · dados oficiais do TSE</span></div>
           <nav class="acervo-abas" aria-label="Seções">
             <a href="#eleicoes" data-aba="eleicoes">Eleições</a>
             <a href="#candidatos" data-aba="candidatos">Candidatos</a>
             <a href="#pesquisas" data-aba="pesquisas">Pesquisas</a>
           </nav>
+          <div id="conta" class="acervo-conta"></div>
         </div>
       </header>
       <main class="page acervo-page">
+        <section id="sec-entrar" class="acervo-sec" hidden></section>
         <section id="sec-eleicoes" class="acervo-sec" hidden></section>
         <section id="sec-candidatos" class="acervo-sec" hidden></section>
         <section id="sec-pesquisas" class="acervo-sec" hidden></section>

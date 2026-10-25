@@ -9,12 +9,18 @@ const ALVOS: Array<[string, string]> = [
   ['#tabela', 'Por estado'],
   ['#totais', 'Totais'],
   ['#linha', 'Evolução'],
+  ['/acervo', 'Dados históricos'],
 ];
 
 export function montarAtalhos(raiz: HTMLElement): void {
   const nav = el('nav', { class: 'atalhos', 'aria-label': 'Ir para' });
   for (const [href, rotulo] of ALVOS) {
     const a = el('a', { href, text: rotulo });
+    if (!href.startsWith('#')) {
+      a.classList.add('ext');
+      nav.append(a);
+      continue;
+    }
     a.addEventListener('click', (e) => {
       const alvo = document.querySelector<HTMLElement>(href);
       if (!alvo || alvo.hidden) return;

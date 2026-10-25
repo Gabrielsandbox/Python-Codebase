@@ -51,7 +51,7 @@ mais escuros só nos gráficos (contraste), e o nome/sigla ao lado da marca carr
 
 ## Próximos passos (depois de 25/10)
 
-1. **Área logada** (`conta.apuracaoaovivo.com` ou `/conta`): a mesma sessão do chat; mostra o que a
+1. **Área logada** (feito o primeiro passo: `/acervo` exige conta, criada pelo e-mail em `/conta/cadastro`; falta a página da conta): a mesma sessão do chat; mostra o que a
    pessoa tem (chat 2026, acervo), e-mail, sair de todos os aparelhos.
 2. **Chaves de API por conta**: `APURACAO_API_KEYS` (lista fixa) vira tabela `chaves(usuario_id,
    chave_hash, criada_em, revogada_em)`; a API do acervo valida pela tabela.

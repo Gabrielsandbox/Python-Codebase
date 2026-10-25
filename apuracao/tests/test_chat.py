@@ -411,3 +411,42 @@ def test_lista_de_espera(tmp_path):
         csv = c.get("/espera.csv", params={"chave": "chave-secreta"})
         assert csv.status_code == 200
         assert csv.text.startswith("whatsapp,criado_em,origem\n+5511999991234,")
+
+
+def test_conta_cadastro_cria_e_loga(cliente):
+    """Criar conta pelo e-mail (plataforma): nasce a conta, o link entra, e repetir vira login."""
+    r = cliente.post(
+        "/conta/cadastro",
+        json={
+            "email": "Ana@Exemplo.test",
+            "nome": "Ana Souza",
+            "retorno": "https://site.test/acervo",
+        },
+    )
+    assert r.status_code == 200, r.text
+    j = r.json()
+    assert j["ok"] is True and j["enviado"] is False and "login=" in j["link"]
+    assert cliente.get("/chat/estado").json()["contas"] == 1
+    tok = j["link"].split("login=")[1]
+    r = cliente.get("/conta/entrar", params={"token": tok})
+    assert r.status_code == 200, r.text
+    a = r.json()
+    assert a["email"] == "ana@exemplo.test" and a["apelido"].lower().startswith("ana")
+    # link é de uso único
+    assert cliente.get("/conta/entrar", params={"token": tok}).status_code == 410
+    # mesmo e-mail de novo: não duplica a conta
+    r = cliente.post(
+        "/conta/cadastro", json={"email": "ana@exemplo.test", "retorno": "https://site.test/acervo"}
+    )
+    assert r.status_code == 200 and cliente.get("/chat/estado").json()["contas"] == 1
+    # e-mail inválido e retorno relativo
+    assert (
+        cliente.post(
+            "/conta/cadastro", json={"email": "x", "retorno": "https://s.test/"}
+        ).status_code
+        == 422
+    )
+    assert (
+        cliente.post("/conta/cadastro", json={"email": "a@b.cd", "retorno": "/acervo"}).status_code
+        == 422
+    )

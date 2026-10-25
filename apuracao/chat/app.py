@@ -64,6 +64,12 @@ class LoginIn(BaseModel):
     retorno: str = Field(min_length=1, max_length=2048)
 
 
+class CadastroIn(BaseModel):
+    email: str = Field(min_length=3, max_length=254)
+    nome: str = Field(default="", max_length=80)
+    retorno: str = Field(min_length=1, max_length=2048)
+
+
 def criar_app(cfg: Config | None = None) -> FastAPI:
     cfg = cfg or Config.from_env()
     app = FastAPI(title="Apuração BR — chat", version="0.1.0")
@@ -341,6 +347,34 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
             )
             if cfg.pagamento == "dev" and not enviado:
                 resposta["link"] = link  # dev sem e-mail: devolve o link para testar o fluxo
+        return resposta
+
+    @app.post("/conta/cadastro")
+    def conta_cadastro(body: CadastroIn) -> dict[str, Any]:
+        """Criar conta (plataforma de dados): cria a conta pelo e-mail, se ainda não existe, e
+        manda o link de acesso de uso único. Quem já tem conta recebe o mesmo link (é um login).
+        A resposta não diz se a conta já existia."""
+        try:
+            email = normalizar_email(body.email)
+        except EmailInvalido as exc:
+            raise HTTPException(422, str(exc)) from exc
+        if not body.retorno.startswith(("http://", "https://")):
+            raise HTTPException(422, "retorno deve ser uma URL absoluta")
+        u = db.usuario_por_email(email)
+        if u is None:
+            u = db.obter_ou_criar_usuario(
+                novo_id_usuario(), email, apelido_de_nome(body.nome.strip(), email)
+            )
+        tok, tok_hash, exp = novo_token_login()
+        db.criar_login(tok_hash, u["id"], exp.isoformat())
+        link = anexar_query(body.retorno, login=tok)
+        assunto, texto = corpo_email_login(link, u["apelido"])
+        enviado = enviar_email(
+            api_key=cfg.resend_api_key, de=cfg.email_de, para=email, assunto=assunto, texto=texto
+        )
+        resposta: dict[str, Any] = {"ok": True, "enviado": enviado}
+        if cfg.pagamento == "dev" and not enviado:
+            resposta["link"] = link  # dev sem e-mail: devolve o link para testar o fluxo
         return resposta
 
     @app.get("/conta/entrar")

@@ -8,6 +8,7 @@ import { el } from '../format';
 import * as api from './api';
 import type { Candidatura, Eleicao, Estado, LinhaEleicao, LinhaUf, Pessoa, PontoPesquisa } from './api';
 import { barrasHorizontais, fmtInt, fmtPct, linhas } from './charts';
+import { montarConta } from './conta';
 import type { Barra, Serie } from './charts';
 
 const UFS = ['AC', 'AL', 'AM', 'AP', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA', 'MG', 'MS', 'MT', 'PA', 'PB', 'PE', 'PI', 'PR', 'RJ', 'RN', 'RO', 'RR', 'RS', 'SC', 'SE', 'SP', 'TO'];
@@ -397,16 +398,36 @@ async function renderPesquisas(raiz: HTMLElement, p: URLSearchParams): Promise<v
 
 // ----------------------------------------------------------------------------- app
 let renderId = 0;
+const conta = montarConta(document.getElementById('conta')!, () => void render());
+let abaPedida: string | null = null;
 async function render(): Promise<void> {
   const id = ++renderId;
   const { aba, p } = rotaAtual();
+  const logado = !!conta.sessao();
   document.querySelectorAll<HTMLAnchorElement>('.acervo-abas a').forEach((a) => {
-    if (a.dataset.aba === aba) a.setAttribute('aria-current', 'page');
+    if (a.dataset.aba === aba && logado) a.setAttribute('aria-current', 'page');
     else a.removeAttribute('aria-current');
   });
   for (const nome of ABAS) {
     const sec = document.getElementById(`sec-${nome}`)!;
-    sec.hidden = nome !== aba;
+    sec.hidden = !logado || nome !== aba;
+  }
+  const portao = document.getElementById('sec-entrar')!;
+  portao.hidden = logado;
+  if (!logado) {
+    // sem conta: só o portão (landing + criar conta / entrar); guarda a aba pedida para depois
+    if (location.hash && location.hash !== '#entrar') abaPedida = location.hash;
+    if (!portao.childElementCount) portao.append(conta.portao());
+    document.title = 'Entrar — Acervo · Apuração ao Vivo';
+    return;
+  }
+  if (abaPedida) {
+    const h = abaPedida;
+    abaPedida = null;
+    if (location.hash !== h) {
+      location.hash = h;
+      return;
+    }
   }
   const raiz = document.getElementById(`sec-${aba}`)!;
   const perfil = p.get('perfil');
@@ -414,8 +435,10 @@ async function render(): Promise<void> {
   if (!estado) raiz.replaceChildren(carregando());
   try {
     if (!estado) [estado, cores] = await Promise.all([api.estado(), api.cores()]);
-  } catch (ex) {
-    raiz.replaceChildren(erro(ex));
+  } catch {
+    raiz.replaceChildren(
+      el('section', { class: 'card ac-card' }, el('h2', { text: 'A base de dados está sendo preparada' }), el('p', { class: 'ac-lead', text: 'Sua conta já está criada. Os dados das eleições de 2018 e 2022 entram no ar em breve; volte daqui a pouco ou acompanhe a apuração de hoje na página inicial.' }), el('p', {}, el('a', { class: 'btn', href: '/', text: 'Ver a apuração ao vivo' }))),
+    );
     return;
   }
   if (id !== renderId) return;
@@ -424,5 +447,5 @@ async function render(): Promise<void> {
   else await renderPesquisas(raiz, p);
 }
 window.addEventListener('hashchange', () => void render());
-void render();
+void conta.concluirLink().then(() => render());
 export {};
