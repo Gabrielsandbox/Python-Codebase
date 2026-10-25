@@ -87,7 +87,7 @@ export function montarRecursos(store: Store, secao: SecaoMapa, geo: Geo, chat: C
   const status = document.querySelector<HTMLElement>('#topbar .status');
   if (status) {
     montarRitmoIndicador(status, store);
-    const btn = el('button', { class: 'btn btn-telao', type: 'button', title: 'Modo telão: tela cheia com placar gigante e mapa (Esc sai) · incluído no pacote de R$ 5' }, el('i', { class: 'ico', 'aria-hidden': 'true' }), el('span', { text: 'Telão' }));
+    const btn = el('button', { class: 'btn btn-telao', type: 'button', title: 'Modo telão: tela cheia com placar gigante e mapa (Esc sai)', 'aria-label': 'Modo telão' }, el('i', { class: 'ico', 'aria-hidden': 'true' }), el('span', { text: 'Telão' }));
     btn.addEventListener('click', () => void abrirTelao({ fullscreen: true }));
     status.append(btn);
   }
