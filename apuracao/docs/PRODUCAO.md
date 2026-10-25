@@ -135,6 +135,14 @@ do coletor) o serviço publica o lake em `historico/` no bucket, e os próximos 
 sincronizam (`manifest.json`), sem ETL. Domínio: `api.apuracaoaovivo.com` (CNAME proxied, como o
 chat). Health: `GET /api/v1/acervo/estado` lista os anos carregados.
 
+## 3d. Lançamento 100% gratuito (25/10/2026)
+
+O site foi ao ar sem cobrança: `VITE_ESPERA=0` (apuração na raiz) e `VITE_CHAT_GRATIS=1` em
+`web/.env.production`. No modo gratuito o painel do chat pede só o apelido; por baixo, o site cria uma
+conta automática por navegador (`/conta/google` com credencial `dev:…`, aceita porque o serviço do
+chat está com `CHAT_PAGAMENTO=dev`) e passa pelo "checkout" do provedor dev, que não cobra. Para
+voltar a cobrar: `CHAT_PAGAMENTO=stripe` no Railway e `VITE_CHAT_GRATIS=0` no build.
+
 ## 3a. Página de espera (antes do lançamento)
 
 Com `VITE_ESPERA=1` em `apuracao/web/.env.production`, o build coloca a **lista de espera** na raiz

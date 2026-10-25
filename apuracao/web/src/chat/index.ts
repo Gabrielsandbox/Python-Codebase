@@ -4,7 +4,7 @@
 import './chat-ext.css';
 import { el, fmtInt } from '../format';
 import type { Store } from '../store';
-import { acesso, ChatHttpError, contaGoogle, entrar, estado as lerEstado, guardarSessao, lerSessao, type Acesso, type Estado, type Sessao, ONLINE_MINIMO } from './client';
+import { acesso, CHAT_GRATIS, ChatHttpError, checkout, contaGoogle, entrar, estado as lerEstado, guardarSessao, lerSessao, type Acesso, type Estado, type Sessao, ONLINE_MINIMO } from './client';
 import { montarPaywall, type VariantePaywall } from './paywall';
 import { montarPrevia } from './previa';
 import { montarSala } from './sala';
@@ -241,7 +241,36 @@ export function montarChat(raiz: HTMLElement, store: Store): ChatApi {
     mostrar('paywall');
     paywall.aviso(msg);
   };
+  /** Modo gratuito: conta automática por navegador (provedor dev do servidor) + "pagamento" sem cobrança. */
+  const entrarGratis = async (apelido: string) => {
+    let id = '';
+    try {
+      id = localStorage.getItem('chat_gratis_id') ?? '';
+      if (!id) {
+        id = crypto.randomUUID();
+        localStorage.setItem('chat_gratis_id', id);
+      }
+    } catch {
+      id = crypto.randomUUID();
+    }
+    const a = await contaGoogle(`dev:g-${id}@gratis.apuracaoaovivo.com:${apelido}`);
+    const sessao = sessaoDe(a);
+    guardarSessao(sessao);
+    if (a.pago) {
+      mostrar('sala', sessao);
+      for (const cb of ouvintesSessao) cb(sessao);
+      return;
+    }
+    const retorno = new URL(location.href);
+    retorno.search = '';
+    retorno.hash = '';
+    const r = await checkout(apelido, retorno.toString(), { token: a.token });
+    const ref = new URL(r.url, location.href).searchParams.get(RETORNO_PARAM);
+    if (ref) await concluirPagamento(ref);
+    else location.assign(r.url);
+  };
   const paywall = montarPaywall({
+    aoEntrarGratis: entrarGratis,
     aoCheckout: () => {
       /* o navegador será redirecionado */
     },
@@ -393,14 +422,14 @@ export function montarChat(raiz: HTMLElement, store: Store): ChatApi {
   // ---------------------------------------------------------------- retorno do pagamento
   let aguardandoTxt: HTMLElement | null = null;
   const telaAguardando = () => {
-    aguardandoTxt = el('p', { class: 'aguardando-txt', text: 'confirmando pagamento…' });
+    aguardandoTxt = el('p', { class: 'aguardando-txt', text: CHAT_GRATIS ? 'entrando no chat…' : 'confirmando pagamento…' });
     return el(
       'div',
       { class: 'chat-aguardando', role: 'status' },
       el('div', { class: 'spinner', 'aria-hidden': 'true' }),
       el('h3', { text: 'Quase lá' }),
       aguardandoTxt,
-      el('p', { class: 'hint', text: 'Se você pagou com PIX, a confirmação costuma levar alguns segundos. Pode deixar esta aba aberta.' }),
+      CHAT_GRATIS ? null : el('p', { class: 'hint', text: 'Se você pagou com PIX, a confirmação costuma levar alguns segundos. Pode deixar esta aba aberta.' }),
     );
   };
 

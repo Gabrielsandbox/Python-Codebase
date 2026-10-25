@@ -13,6 +13,8 @@ export const CHAVE_APELIDO = 'chat_apelido';
 export const CHAVE_EMAIL = 'chat_email';
 /** OAuth client id (tipo Web) do Google Cloud; vazio = botão do Google não aparece (fica o e-mail). */
 export const GOOGLE_CLIENT_ID: string = (import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined) ?? '';
+/** VITE_CHAT_GRATIS=1: chat sem cobrança — só apelido; a conta nasce sozinha (provedor dev no servidor). */
+export const CHAT_GRATIS: boolean = (import.meta.env.VITE_CHAT_GRATIS as string | undefined) === '1';
 export const EMAIL_RE = /^[^@\s]{1,64}@[^@\s]+\.[^@\s]{2,}$/;
 export const MAX_TEXTO = 280;
 export const APELIDO_RE = /^[\p{L}\p{N}_ ]{2,24}$/u;
