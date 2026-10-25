@@ -131,7 +131,7 @@ def etl_ano(ano: int, log: Log = print, memoria: str | None = None) -> None:
         log(f"[{ano}] convertendo {tabela}…")
         try:
             r = executar_etl(ano, tabela, zip_path=res.caminho, memoria=memoria)
-        except Exception as e:  # noqa: BLE001 — CSV fora do padrão (aspas abertas etc.): relê pulando as linhas ruins
+        except Exception as e:
             if "CSV Error" not in str(e):
                 raise
             log(
