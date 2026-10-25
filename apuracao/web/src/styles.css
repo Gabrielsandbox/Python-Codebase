@@ -798,48 +798,114 @@ h3 {
 .race-bar {
   grid-column: 1 / -1;
   position: relative;
-  height: 18px;
+  height: 26px;
   display: flex;
-  gap: 2px;
-  border-radius: 6px;
+  border-radius: 999px;
   overflow: hidden;
   background: var(--surface-2);
-  margin-top: 4px;
+  box-shadow: inset 0 0 0 1px var(--line);
+  margin-top: 6px;
 }
 .race-bar > i {
-  display: block;
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-width: 0;
   height: 100%;
   transition: flex-basis 0.7s cubic-bezier(0.2, 0.7, 0.2, 1);
   flex: 0 0 0%;
 }
-.race-bar > i.other {
-  background: var(--line-strong);
+.race-bar > i:first-child {
+  justify-content: flex-start;
+  padding-left: 10px;
+  border-right: 2px solid var(--bg); /* respiro de 2 px entre os preenchimentos */
 }
+.race-bar > i:last-child {
+  justify-content: flex-end;
+  padding-right: 10px;
+  border-left: 2px solid var(--bg);
+}
+.race-bar > i.other {
+  background:
+    repeating-linear-gradient(135deg, var(--line-strong) 0 3px, transparent 3px 7px),
+    var(--surface-2);
+}
+.race-bar .rb-lbl {
+  font-size: 12.5px;
+  font-style: normal;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: #fff;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.3);
+  white-space: nowrap;
+  overflow: hidden;
+}
+.race-bar .rb-lbl[hidden] {
+  display: none;
+}
+/* marcador de 50 %: traço atravessando a barra e rótulo logo abaixo */
 .race-mid {
   grid-column: 1 / -1;
   position: relative;
   height: 0;
-  margin-top: -22px;
-  margin-bottom: 22px;
+  margin-top: -38px; /* volta ao topo da barra (26 px) atravessando o gap de 12 px da grade */
+  margin-bottom: 18px;
   pointer-events: none;
 }
 .race-mid::before {
   content: "";
   position: absolute;
   left: 50%;
-  top: -3px;
+  top: 0;
   width: 2px;
-  height: 24px;
+  height: 31px; /* barra inteira + tique de 5 px */
   background: var(--ink);
-  opacity: 0.55;
+  box-shadow: 0 0 0 1.5px var(--bg);
   transform: translateX(-1px);
+}
+.race-mid::after {
+  content: "50%";
+  position: absolute;
+  left: 50%;
+  top: 33px;
+  transform: translateX(-50%);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+@media (min-width: 720px) {
+  .race-bar {
+    height: 30px;
+  }
+  .race-bar .rb-lbl {
+    font-size: 14px;
+  }
+  .race-mid {
+    margin-top: -54px; /* barra de 30 px + gap de 24 px */
+  }
+  .race-mid::before {
+    height: 35px;
+  }
+  .race-mid::after {
+    top: 37px;
+  }
+}
+/* topo em telas médias com o chat em coluna: some o texto "verificado" e a hora do TSE */
+@media (max-width: 1399px) {
+  .topbar-inner .status .live-ind .lbl,
+  .topbar-inner .status .live-ind .sep,
+  .topbar-inner .status .live-ind .tse {
+    display: none;
+  }
 }
 .margin-line {
   grid-column: 1 / -1;
   text-align: center;
   font-size: 13.5px;
   color: var(--ink-2);
-  margin-top: 2px;
+  margin-top: 14px;
 }
 .margin-line strong {
   color: var(--ink);
