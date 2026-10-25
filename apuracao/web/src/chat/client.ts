@@ -142,6 +142,9 @@ export interface LoginPedido {
   link?: string;
 }
 /** Pede um link de acesso por e-mail (uso único, 30 min). A resposta não revela se o e-mail existe. */
+/** Criar conta pelo e-mail (plataforma): cria se não existe e manda o link de acesso. */
+export const cadastrar = (email: string, nome: string, retorno: string): Promise<LoginPedido & { enviado?: boolean }> =>
+  chamarUrl<LoginPedido & { enviado?: boolean }>(`${CONTA_BASE}/cadastro`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, nome, retorno }) });
 export const pedirLogin = (email: string, retorno: string): Promise<LoginPedido> =>
   chamarUrl<LoginPedido>(`${CONTA_BASE}/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, retorno }) });
 /** Troca o token do link (?login=) por uma sessão. 410 = link inválido, usado ou vencido. */

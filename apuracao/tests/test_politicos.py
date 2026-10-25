@@ -7,9 +7,22 @@ from politicos.tse import Candidatura
 
 def _cand(sq, nome_civil, nascimento, cpf=""):
     return Candidatura(
-        sq=sq, cargo="6", uf="SP", numero="1310", nome_urna=nome_civil, nome_civil=nome_civil,
-        cpf=cpf, nascimento=nascimento, partido="PT", partido_nome="Partido", coligacao="",
-        composicao="", genero="Masculino", instrucao="", ocupacao="", situacao="eleito",
+        sq=sq,
+        cargo="6",
+        uf="SP",
+        numero="1310",
+        nome_urna=nome_civil,
+        nome_civil=nome_civil,
+        cpf=cpf,
+        nascimento=nascimento,
+        partido="PT",
+        partido_nome="Partido",
+        coligacao="",
+        composicao="",
+        genero="Masculino",
+        instrucao="",
+        ocupacao="",
+        situacao="eleito",
     )
 
 
@@ -56,7 +69,10 @@ from politicos.planos import Linha, sumario_proprio, titulos, titulos_por_estilo
 
 
 def _corpo(n=8):
-    return [Linha(f"texto corrido do plano, linha {i} com bastante conteúdo", 11.0, False) for i in range(n)]
+    return [
+        Linha(f"texto corrido do plano, linha {i} com bastante conteúdo", 11.0, False)
+        for i in range(n)
+    ]
 
 
 def test_sumario_proprio_acha_pagina_real_e_junta_titulo_quebrado():
@@ -91,7 +107,9 @@ def test_titulos_por_estilo_ignora_cabecalho_e_repete_titulo_de_capitulo_uma_vez
     paginas = []
     for cap in ("Economia", "Saúde"):
         for _ in range(3):  # título do capítulo no alto de cada página dele
-            paginas.append([Linha("PROGRAMA DE GOVERNO", 9.0, True), Linha(cap.upper(), 20.0, True), *_corpo()])
+            paginas.append(
+                [Linha("PROGRAMA DE GOVERNO", 9.0, True), Linha(cap.upper(), 20.0, True), *_corpo()]
+            )
     paginas += [[Linha("PROGRAMA DE GOVERNO", 9.0, True), *_corpo()] for _ in range(14)]
     assert titulos_por_estilo(paginas) == [{"t": "ECONOMIA", "p": 1}, {"t": "SAÚDE", "p": 4}]
     assert titulos(paginas) == titulos_por_estilo(paginas)  # sem sumário próprio, vale o estilo
@@ -107,8 +125,14 @@ def test_sumario_proprio_varios_titulos_na_mesma_pagina_e_item_antes_do_sumario(
             Linha("2. Educação ........ 4", 11.0, False),
         ],
         [Linha("1. Saúde", 18.0, True), Linha("1.1 Atenção básica", 14.0, True), *_corpo()],
-        [Linha("2. Educação", 18.0, True), Linha("menciona 1.1 Atenção básica de novo", 11.0, False)],
+        [
+            Linha("2. Educação", 18.0, True),
+            Linha("menciona 1.1 Atenção básica de novo", 11.0, False),
+        ],
     ]
     assert [(t["t"], t["p"]) for t in sumario_proprio(paginas)] == [
-        ("Apresentação", 1), ("1. Saúde", 3), ("1.1 Atenção básica", 3), ("2. Educação", 4),
+        ("Apresentação", 1),
+        ("1. Saúde", 3),
+        ("1.1 Atenção básica", 3),
+        ("2. Educação", 4),
     ]

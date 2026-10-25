@@ -444,3 +444,109 @@ details.ac-tab summary {
     grid-template-columns: 1fr;
   }
 }
+
+/* conta ------------------------------------------------------------------- */
+.acervo-top {
+  grid-template-columns: auto 1fr auto;
+}
+.acervo-conta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  justify-self: end;
+}
+.ac-user {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--ink-2);
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ac-user-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--done);
+  flex: none;
+}
+.ac-entrar {
+  background: var(--ink);
+  color: var(--bg);
+  border-color: var(--ink);
+  text-decoration: none;
+}
+.ac-entrar:hover {
+  background: var(--ink-2);
+}
+.ac-home {
+  color: inherit;
+  text-decoration: none;
+}
+.ac-portao {
+  display: grid;
+  gap: 16px;
+}
+@media (min-width: 900px) {
+  .ac-portao {
+    grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+    align-items: start;
+  }
+}
+.ac-portao-sobre h2 {
+  font-size: clamp(24px, 4.5vw, 34px);
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  margin: 8px 0 10px;
+  text-wrap: balance;
+}
+.ac-portao-sobre .pay-list {
+  margin-top: 14px;
+}
+.ac-portao-sobre .pay-list .desc {
+  color: var(--ink-2);
+}
+.ac-portao-form h3 {
+  margin: 0 0 12px;
+  font-size: 20px;
+  letter-spacing: -0.01em;
+}
+.ac-form {
+  display: grid;
+  gap: 12px;
+}
+.ac-alt {
+  justify-self: start;
+  padding: 0;
+  font-size: 13.5px;
+  color: var(--ink-2);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+.ac-ou {
+  margin: 10px 0 6px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.pay-aviso.ok {
+  color: var(--done);
+}
+@media (max-width: 640px) {
+  .acervo-top {
+    display: flex;
+    flex-wrap: wrap;
+  }
+  .acervo-conta {
+    margin-left: auto;
+  }
+  .acervo-abas {
+    order: 3;
+  }
+}
+
