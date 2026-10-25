@@ -435,8 +435,10 @@ async function render(): Promise<void> {
   if (!estado) raiz.replaceChildren(carregando());
   try {
     if (!estado) [estado, cores] = await Promise.all([api.estado(), api.cores()]);
-  } catch (ex) {
-    raiz.replaceChildren(erro(ex));
+  } catch {
+    raiz.replaceChildren(
+      el('section', { class: 'card ac-card' }, el('h2', { text: 'A base de dados está sendo preparada' }), el('p', { class: 'ac-lead', text: 'Sua conta já está criada. Os dados das eleições de 2018 e 2022 entram no ar em breve; volte daqui a pouco ou acompanhe a apuração de hoje na página inicial.' }), el('p', {}, el('a', { class: 'btn', href: '/', text: 'Ver a apuração ao vivo' }))),
+    );
     return;
   }
   if (id !== renderId) return;

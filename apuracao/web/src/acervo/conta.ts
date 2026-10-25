@@ -1,7 +1,7 @@
 // Conta da plataforma: criar conta / entrar pelo e-mail (link de uso único) ou Google, com a mesma
 // sessão do chat (localStorage). Sem sessão a plataforma mostra o "portão": o que há dentro + o formulário.
 import { el } from '../format';
-import { cadastrar, ChatHttpError, contaGoogle, EMAIL_RE, entrar, GOOGLE_CLIENT_ID, guardarSessao, lerSessao, pedirLogin, type Sessao } from '../chat/client';
+import { cadastrar, CHAT_GRATIS, ChatHttpError, contaGoogle, EMAIL_RE, entrar, GOOGLE_CLIENT_ID, guardarSessao, lerSessao, pedirLogin, type Sessao } from '../chat/client';
 
 const LOGIN_PARAM = 'login';
 
@@ -121,7 +121,16 @@ export function montarConta(slot: HTMLElement, aoMudar: (s: Sessao | null) => vo
         }
         mostrar(`Enviamos um link de acesso para ${em}. Ele vale por 30 minutos e abre em qualquer aparelho. Confira também a caixa de spam.`);
       } catch (err) {
-        if (err instanceof ChatHttpError && err.status === 404 && modo === 'criar') {
+        if (err instanceof ChatHttpError && err.status === 404 && modo === 'criar' && CHAT_GRATIS) {
+          // servidor ainda sem /conta/cadastro: no modo gratuito a conta nasce pela credencial dev
+          try {
+            const a = await contaGoogle(`dev:${em}:${nome.value.trim()}`);
+            entrou({ token: a.token, apelido: a.apelido, autor: a.autor, email: a.email, pago: a.pago });
+            return;
+          } catch {
+            mostrar('Não foi possível criar a conta agora. Tente de novo em instantes.', true);
+          }
+        } else if (err instanceof ChatHttpError && err.status === 404 && modo === 'criar') {
           mostrar('Criar conta ainda não está disponível neste servidor. Tente "Já tenho conta".', true);
         } else if (err instanceof ChatHttpError && err.status === 422) mostrar('Esse e-mail não foi aceito. Confira e tente de novo.', true);
         else mostrar('Não foi possível enviar agora. Tente de novo em instantes.', true);
