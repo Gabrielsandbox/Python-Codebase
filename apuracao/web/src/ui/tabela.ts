@@ -4,7 +4,7 @@ import { el, fmtPct, nomeProprio } from '../format';
 import type { Store } from '../store';
 import { linkFonte, urlFonteUf } from '../recursos/fonte';
 
-type Coluna = { id: string; rotulo: string; num: boolean; cand?: number; swatch?: string };
+type Coluna = { id: string; rotulo: string; curto?: string; num: boolean; cand?: number; swatch?: string };
 
 export function montarTabela(raiz: HTMLElement, store: Store, onUf: (sigla: string) => void, onHover: (sigla: string | null) => void): void {
   const thead = el('thead');
@@ -33,11 +33,12 @@ export function montarTabela(raiz: HTMLElement, store: Store, onUf: (sigla: stri
       return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
     });
     colunas = [
-      { id: 'nome', rotulo: 'Estado', num: false },
-      { id: 'apurado', rotulo: 'Apurado', num: true },
+      { id: 'nome', rotulo: 'Estado', curto: 'UF', num: false },
+      { id: 'apurado', rotulo: 'Apurado', curto: 'Apur.', num: true },
       ...candsTabela.map((ci) => ({
         id: `c${ci}`,
         rotulo: nomeProprio(store.cand(ci).nome).split(' ').slice(0, 2).join(' '),
+        curto: nomeProprio(store.cand(ci).nome).split(' ')[0],
         num: true,
         cand: ci,
         swatch: store.paleta.cores[ci],
@@ -50,13 +51,13 @@ export function montarTabela(raiz: HTMLElement, store: Store, onUf: (sigla: stri
         'tr',
         {},
         ...colunas.map((c) => {
-          const btn = el('button', { type: 'button' }, c.swatch ? el('i', { class: 'sw', style: `background:${c.swatch}` }) : '', c.rotulo);
+          const btn = el('button', { type: 'button' }, c.swatch ? el('i', { class: 'sw', style: `background:${c.swatch}` }) : '', c.curto ? el('span', { class: 'long', text: c.rotulo }) : c.rotulo, c.curto ? el('span', { class: 'short', text: c.curto }) : null);
           btn.addEventListener('click', () => {
             if (ordem.col === c.id) ordem.asc = !ordem.asc;
             else ordem = { col: c.id, asc: !c.num };
             renderCorpo();
           });
-          return el('th', { class: c.num ? '' : 'l', scope: 'col' }, btn);
+          return el('th', { class: `${c.num ? '' : 'l'}${c.id === 'margem' ? ' col-margem' : ''}`, scope: 'col' }, btn);
         }),
       ),
     );
@@ -95,7 +96,7 @@ export function montarTabela(raiz: HTMLElement, store: Store, onUf: (sigla: stri
         const tr = el(
           'tr',
           { tabindex: 0, 'data-uf': sigla },
-          el('td', { class: 'uf-name l' }, r.nome, el('small', { text: sigla }), linkFonte(urlFonteUf(store, sigla), { icone: true })),
+          el('td', { class: 'uf-name l' }, el('span', { class: 'nm', text: r.nome }), el('small', { text: sigla }), linkFonte(urlFonteUf(store, sigla), { icone: true })),
           el(
             'td',
             { class: 'num' },
@@ -103,7 +104,7 @@ export function montarTabela(raiz: HTMLElement, store: Store, onUf: (sigla: stri
             fmtPct(r.secoes.pct, 1),
           ),
           ...candsTabela.map((ci) => el('td', { class: `num ${semDados ? 'dim' : ''}`, text: semDados ? '–' : fmtPct(r.pct[ci] ?? 0) })),
-          el('td', { class: `num ${semDados ? 'dim' : ''}`, text: semDados ? '–' : fmtPct(r.margem_pct, 1).replace('%', ' p.p.') }),
+          el('td', { class: `num col-margem ${semDados ? 'dim' : ''}`, text: semDados ? '–' : fmtPct(r.margem_pct, 1).replace('%', ' p.p.') }),
           el(
             'td',
             { class: 'l' },
@@ -112,7 +113,7 @@ export function montarTabela(raiz: HTMLElement, store: Store, onUf: (sigla: stri
                   'span',
                   { class: 'lead' },
                   el('i', { class: 'sw', style: `background:${store.paleta.cores[liderIdx]}` }),
-                  nomeProprio(store.cand(liderIdx).nome).split(' ')[0],
+                  el('span', { class: 'ln', text: nomeProprio(store.cand(liderIdx).nome).split(' ')[0] }),
                 )
               : el('span', { class: 'lead lw', text: 'sem dados' }),
           ),

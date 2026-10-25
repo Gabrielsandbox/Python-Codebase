@@ -2855,3 +2855,159 @@ html[data-chat-layout="sheet"] .pay-legal {
 .pay-entrar[hidden] {
   display: none;
 }
+
+/* ================================================================== celular: refinamentos de layout */
+/* atalhos para os blocos da página (só no celular; no desktop tudo cabe em poucas telas) */
+.atalhos {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  margin-top: 14px;
+  padding: 2px 0 4px;
+  -webkit-overflow-scrolling: touch;
+}
+.atalhos::-webkit-scrollbar {
+  display: none;
+}
+.atalhos a {
+  flex: none;
+  padding: 7px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  background: var(--surface);
+  color: var(--ink-2);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.atalhos a:active {
+  background: var(--surface-2);
+}
+.atalhos a:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+@media (min-width: 720px) {
+  .atalhos {
+    display: none;
+  }
+}
+.page > section {
+  scroll-margin-top: 64px;
+}
+@media (max-width: 719px) {
+  /* ordem no celular: placar → mapa → caminho → estados → totais → evolução */
+  #mapa {
+    order: 1;
+  }
+  #caminho {
+    order: 2;
+  }
+  #tabela {
+    order: 3;
+  }
+  #totais {
+    order: 4;
+  }
+  #linha {
+    order: 5;
+  }
+  /* placar: os dois lados com a mesma altura, percentuais alinhados na mesma linha */
+  .contest {
+    align-items: stretch;
+  }
+  .cand {
+    grid-template-rows: auto 1fr;
+  }
+  .cand .figures {
+    align-self: end;
+  }
+  .cand .name {
+    text-wrap: balance;
+  }
+  /* tabela por estado: só a sigla, sem margem nem link da fonte; cabe sem rolagem lateral */
+  table.uf {
+    min-width: 0;
+    font-size: 13px;
+  }
+  table.uf th,
+  table.uf td {
+    padding: 9px 6px;
+  }
+  table.uf td.uf-name .nm,
+  table.uf td.uf-name .fonte-ic,
+  table.uf .col-margem {
+    display: none;
+  }
+  table.uf td.uf-name small {
+    margin: 0;
+    font-weight: 700;
+    color: var(--ink);
+    font-size: 13px;
+  }
+  .tbl-wrap {
+    padding: 4px 6px 8px;
+  }
+  /* o botão flutuante do chat não cobre o rodapé */
+  html[data-chat-layout="sheet"] .page {
+    padding-bottom: 96px;
+  }
+}
+@media (max-width: 640px) {
+  /* topo: a marca inteira; telão é para telas grandes */
+  .topbar-inner .brand h1 {
+    font-size: 18px;
+    white-space: nowrap;
+  }
+  .topbar-inner .status {
+    gap: 6px;
+  }
+  .topbar-inner .status .btn-telao {
+    display: none;
+  }
+}
+table.uf th .short {
+  display: none;
+}
+@media (max-width: 719px) {
+  table.uf th .long {
+    display: none;
+  }
+  table.uf th .short {
+    display: inline;
+  }
+  table.uf td .lead .ln {
+    display: none;
+  }
+  table.uf td .lead .sw {
+    width: 14px;
+    height: 14px;
+    border-radius: 4px;
+  }
+  #tabela .card-head {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+  }
+}
+@media (max-width: 400px) {
+  .topbar-inner .brand h1 {
+    font-size: 16px;
+  }
+  .topbar-inner .status .live-ind {
+    display: none;
+  }
+}
+@media (max-width: 719px) {
+  table.uf th {
+    letter-spacing: 0.03em;
+    font-size: 11px;
+  }
+  table.uf th,
+  table.uf td {
+    padding: 9px 5px;
+  }
+}
+
