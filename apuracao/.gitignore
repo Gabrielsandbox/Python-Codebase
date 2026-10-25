@@ -10,3 +10,4 @@ web/dist/
 .env
 data/*.sqlite
 data/*.sqlite-*
+data/politicos/
