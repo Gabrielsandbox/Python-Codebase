@@ -5,6 +5,7 @@ Datasets de resultados chamam-se `resultados-YYYY` (1933..2026), além de varian
 O CKAN do TSE **não informa `size`** nos recursos; use `tamanho_remoto()` (HEAD) quando
 precisar do tamanho real.
 """
+
 from __future__ import annotations
 
 import json
@@ -14,7 +15,7 @@ from pathlib import Path
 
 import httpx
 
-from historico import CATALOGO_DIR, TABELAS, url_cdn
+from historico import CATALOGO_DIR, TABELAS, familia_dataset, url_cdn
 
 CKAN_BASE = "https://dadosabertos.tse.jus.br/api/3/action"
 TTL_PADRAO_S = 6 * 3600
@@ -26,17 +27,17 @@ class Recurso:
     nome: str
     url: str
     formato: str | None
-    tamanho: int | None          # bytes, conforme o CKAN (quase sempre None no TSE)
-    arquivo: str                 # último segmento da URL (ex.: votacao_candidato_munzona_2022.zip)
-    tabela: str | None           # chave de TABELAS, quando reconhecida
+    tamanho: int | None  # bytes, conforme o CKAN (quase sempre None no TSE)
+    arquivo: str  # último segmento da URL (ex.: votacao_candidato_munzona_2022.zip)
+    tabela: str | None  # chave de TABELAS, quando reconhecida
     dataset: str
 
     def para_dict(self) -> dict:
         return asdict(self)
 
 
-def nome_dataset(ano: int, sufixo: str | None = None) -> str:
-    return f"resultados-{ano}" + (f"-{sufixo}" if sufixo else "")
+def nome_dataset(ano: int, sufixo: str | None = None, familia: str = "resultados") -> str:
+    return f"{familia}-{ano}" + (f"-{sufixo}" if sufixo else "")
 
 
 def _caminho_cache(dataset: str) -> Path:
@@ -75,9 +76,11 @@ def identificar_tabela(arquivo: str) -> str | None:
     return None
 
 
-def listar_recursos(ano: int, *, sufixo: str | None = None, forcar: bool = False) -> list[Recurso]:
-    """Lista os recursos (ZIPs) do dataset `resultados-{ano}[-{sufixo}]`."""
-    dataset = nome_dataset(ano, sufixo)
+def listar_recursos(
+    ano: int, *, sufixo: str | None = None, forcar: bool = False, familia: str = "resultados"
+) -> list[Recurso]:
+    """Lista os recursos (ZIPs) do dataset `{familia}-{ano}[-{sufixo}]`."""
+    dataset = nome_dataset(ano, sufixo, familia)
     pkg = package_show(dataset, forcar=forcar)
     saida: list[Recurso] = []
     for r in pkg.get("resources", []):
@@ -104,8 +107,9 @@ def recurso_da_tabela(ano: int, tabela: str, *, uf: str | None = None) -> Recurs
     if tabela not in TABELAS:
         raise KeyError(f"tabela desconhecida: {tabela!r}; opções: {sorted(TABELAS)}")
     alvo = TABELAS[tabela]["arquivo"].format(ano=ano, uf=(uf or "").upper()).lower()
+    familia = familia_dataset(tabela)
     try:
-        for r in listar_recursos(ano):
+        for r in listar_recursos(ano, familia=familia):
             if r.arquivo.lower() == alvo:
                 return r
     except LookupError:
@@ -118,7 +122,7 @@ def recurso_da_tabela(ano: int, tabela: str, *, uf: str | None = None) -> Recurs
         tamanho=None,
         arquivo=url.rsplit("/", 1)[-1],
         tabela=tabela,
-        dataset=nome_dataset(ano),
+        dataset=nome_dataset(ano, familia=familia),
     )
 
 

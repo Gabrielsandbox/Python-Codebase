@@ -27,6 +27,14 @@ app = FastAPI(title="Apuração BR", version="0.1.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["GET"], allow_headers=["*"])
 
 
+@app.on_event("startup")
+def _preparar_acervo() -> None:
+    """Com APURACAO_ACERVO_ANOS (ex.: "2018,2022") sincroniza/gera o lake numa thread (ver historico.sync)."""
+    from historico.sync import garantir_em_segundo_plano
+
+    garantir_em_segundo_plano(log=lambda m: print(m, flush=True))
+
+
 @app.get("/health")
 def health() -> dict:
     status = DATA_DIR / "ativo.json"
@@ -121,4 +129,96 @@ def historico_resultado(
             "cargo": cargo,
             "linhas": resultado_por_municipio(ano, turno, cargo, uf=uf, limite=limite),
         }
+    )
+
+
+# ----------------------------------------------------------------------------- acervo (plataforma)
+# Leitura pública por enquanto (o site da plataforma consome daqui); o corte por conta/assinatura
+# entra quando a plataforma abrir (docs/PLATAFORMA.md). Respostas cacheáveis por 5 min.
+_CACHE_ACERVO = {"Cache-Control": "public, max-age=300, stale-while-revalidate=600"}
+
+
+def _acervo():
+    from historico import acervo
+
+    return acervo
+
+
+@app.get("/api/v1/acervo/estado")
+def acervo_estado() -> JSONResponse:
+    return JSONResponse(_acervo().estado(), headers=_CACHE_ACERVO)
+
+
+@app.get("/api/v1/acervo/candidatos")
+def acervo_candidatos(
+    q: str = Query(min_length=2, max_length=80),
+    ano: int | None = None,
+    cargo: int | None = None,
+    uf: str | None = Query(None, min_length=2, max_length=2),
+    limite: int = Query(30, ge=1, le=100),
+) -> JSONResponse:
+    """Busca candidaturas por nome (de urna ou completo), sem acento e sem maiúsculas."""
+    return JSONResponse(
+        {
+            "q": q,
+            "itens": _acervo().buscar_candidatos(q, ano=ano, cargo=cargo, uf=uf, limite=limite),
+        },
+        headers=_CACHE_ACERVO,
+    )
+
+
+@app.get("/api/v1/acervo/candidato")
+def acervo_candidato(
+    sq: str = Query(min_length=3, max_length=40), ano: int = Query(ge=1990, le=2030)
+) -> JSONResponse:
+    """Perfil público e histórico político (todas as candidaturas) da pessoa."""
+    h = _acervo().historico_pessoa(sq, ano)
+    if h is None:
+        raise HTTPException(404, "candidatura não encontrada")
+    return JSONResponse(h, headers=_CACHE_ACERVO)
+
+
+@app.get("/api/v1/acervo/eleicao")
+def acervo_eleicao(
+    ano: int = Query(ge=1990, le=2030),
+    cargo: int = Query(1),
+    turno: int = Query(1, ge=1, le=2),
+    uf: str | None = Query(None, min_length=2, max_length=2),
+    limite: int = Query(40, ge=1, le=500),
+) -> JSONResponse:
+    """Resultado de uma eleição: votos por candidato (soma dos municípios) e totais."""
+    r = _acervo().resumo_eleicao(ano, cargo, turno, uf=uf, limite=limite)
+    if r is None:
+        raise HTTPException(404, "eleição não disponível no acervo")
+    return JSONResponse(r, headers=_CACHE_ACERVO)
+
+
+@app.get("/api/v1/acervo/eleicao/ufs")
+def acervo_eleicao_ufs(
+    ano: int = Query(ge=1990, le=2030), cargo: int = Query(1), turno: int = Query(1, ge=1, le=2)
+) -> JSONResponse:
+    """Para o mapa: os dois mais votados em cada UF."""
+    return JSONResponse(
+        {"itens": _acervo().resumo_por_uf(ano, cargo, turno)}, headers=_CACHE_ACERVO
+    )
+
+
+@app.get("/api/v1/acervo/pesquisas")
+def acervo_pesquisas(
+    ano: int = Query(ge=1990, le=2030),
+    cargo: int = Query(1),
+    uf: str = Query("BR", min_length=2, max_length=2),
+    turno: int | None = Query(None, ge=1, le=2),
+    cenario: str | None = Query(None, max_length=120),
+) -> JSONResponse:
+    from historico.pesquisas import listar
+
+    return JSONResponse(
+        {
+            "ano": ano,
+            "cargo": cargo,
+            "uf": uf.upper(),
+            "pontos": listar(ano=ano, cargo=cargo, uf=uf, turno=turno, cenario=cenario),
+        },
+        headers=_CACHE_ACERVO,
     )

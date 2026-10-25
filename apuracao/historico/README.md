@@ -82,10 +82,16 @@ python -m historico consulta sql "select ano, turno, count(*) from votacao_candi
 Em Python:
 
 ```python
-from historico.consulta import resultado_por_municipio, serie_historica_municipio, detalhe_municipio, conectar
-linhas = resultado_por_municipio(2024, 1, "Prefeito", cd_ibge="3550308")      # list[dict]
-rel    = resultado_por_municipio(2024, 1, 11, uf="SP", como_relacao=True)     # duckdb relation
-con    = conectar()   # views: votacao_candidato_munzona, detalhe_votacao_munzona, ...
+from historico.consulta import (
+    resultado_por_municipio,
+    serie_historica_municipio,
+    detalhe_municipio,
+    conectar,
+)
+
+linhas = resultado_por_municipio(2024, 1, "Prefeito", cd_ibge="3550308")  # list[dict]
+rel = resultado_por_municipio(2024, 1, 11, uf="SP", como_relacao=True)  # duckdb relation
+con = conectar()  # views: votacao_candidato_munzona, detalhe_votacao_munzona, ...
 ```
 
 Códigos de cargo (`CD_CARGO`): 1 Presidente, 3 Governador, 5 Senador, 6 Dep. Federal,

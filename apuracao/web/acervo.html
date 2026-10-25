@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Acervo — Apuração ao Vivo</title>
+    <meta name="description" content="Resultados de eleições passadas, histórico político de candidatos e pesquisas eleitorais, com dados oficiais do TSE." />
+    <meta name="theme-color" content="#f6f5f1" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#111113" media="(prefers-color-scheme: dark)" />
+    <link rel="icon" href="/icons/icon.svg" type="image/svg+xml" />
+    <meta property="og:title" content="Acervo — Apuração ao Vivo" />
+    <meta property="og:description" content="Eleições passadas, histórico de candidatos e pesquisas, com dados oficiais do TSE." />
+    <meta property="og:image" content="https://dados.apuracaoaovivo.com/og/placar.png" />
+    <script>
+      try {
+        const t = localStorage.getItem('tema');
+        if (t === 'dark' || t === 'light') document.documentElement.dataset.theme = t;
+      } catch {}
+    </script>
+  </head>
+  <body>
+    <div id="app" class="acervo-app">
+      <header class="topbar" id="topbar">
+        <div class="topbar-inner acervo-top">
+          <div class="brand"><h1>Acervo</h1><span class="sub">Apuração ao Vivo · dados oficiais do TSE</span></div>
+          <nav class="acervo-abas" aria-label="Seções">
+            <a href="#eleicoes" data-aba="eleicoes">Eleições</a>
+            <a href="#candidatos" data-aba="candidatos">Candidatos</a>
+            <a href="#pesquisas" data-aba="pesquisas">Pesquisas</a>
+          </nav>
+        </div>
+      </header>
+      <main class="page acervo-page">
+        <section id="sec-eleicoes" class="acervo-sec" hidden></section>
+        <section id="sec-candidatos" class="acervo-sec" hidden></section>
+        <section id="sec-pesquisas" class="acervo-sec" hidden></section>
+      </main>
+      <footer class="footer"><div class="footer-inner"><span>Fonte: TSE (dados abertos). Votos somados dos boletins por município; dados pessoais sensíveis não são usados.</span></div></footer>
+    </div>
+    <div id="erro" class="erro" hidden></div>
+    <script type="module" src="/src/acervo/index.ts"></script>
+  </body>
+</html>

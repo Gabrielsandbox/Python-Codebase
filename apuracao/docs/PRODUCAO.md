@@ -112,7 +112,7 @@ Source = este repositório, **Root Directory = `apuracao`**, Builder = Dockerfil
 | coletor | `apuracao coletar --ano 2026 --turno 2` | nenhuma | nenhum |
 | chat | `python -m chat` | 8001 | `chat.<dominio>` |
 | alertas | `python -m alertas` | 8002 | `chat.<dominio>` com path `/alertas`* |
-| api (acervo) | `apuracao servir --port 8000` | 8000 | `api.<dominio>` (fase 2) |
+| api (acervo) | `apuracao servir --port 8000` | 8000 | `api.<dominio>` |
 
 \* Railway dá um domínio por serviço. O mais simples: `chat.<dominio>` → serviço chat e
 `alertas.<dominio>` → serviço alertas, e no build do site `VITE_ALERTAS_BASE=https://alertas.<dominio>/alertas`.
@@ -123,6 +123,25 @@ Source = este repositório, **Root Directory = `apuracao`**, Builder = Dockerfil
 - Réplicas: chat 2+ (Redis cuida do resto); alertas 1; coletor 1 (um segundo coletor em outro
   provedor é o plano B do runbook).
 - Health: `GET /chat/estado`, `GET /alertas/config`, `GET /health`.
+
+## 3c. Serviço api (acervo público em /acervo)
+
+O site em `/acervo` chama `VITE_API_BASE=https://api.apuracaoaovivo.com/api`. No serviço **api**:
+volume em `/var/lib/apuracao`, variáveis `APURACAO_HISTORICO_DIR=/var/lib/apuracao/historico`,
+`APURACAO_ACERVO_ANOS=2018,2022` e, só no primeiro boot (ou para anos novos),
+`APURACAO_ACERVO_ETL=1` (baixa ~1 GB do TSE e converte; leva de 30 a 60 min; precisa de ~5 GB
+livres no volume e ~4 GB de RAM). Com `APURACAO_S3_BUCKET`/`APURACAO_S3_ENDPOINT`/`AWS_*` (as mesmas
+do coletor) o serviço publica o lake em `historico/` no bucket, e os próximos boots/réplicas só
+sincronizam (`manifest.json`), sem ETL. Domínio: `api.apuracaoaovivo.com` (CNAME proxied, como o
+chat). Health: `GET /api/v1/acervo/estado` lista os anos carregados.
+
+## 3d. Lançamento 100% gratuito (25/10/2026)
+
+O site foi ao ar sem cobrança: `VITE_ESPERA=0` (apuração na raiz) e `VITE_CHAT_GRATIS=1` em
+`web/.env.production`. No modo gratuito o painel do chat pede só o apelido; por baixo, o site cria uma
+conta automática por navegador (`/conta/google` com credencial `dev:…`, aceita porque o serviço do
+chat está com `CHAT_PAGAMENTO=dev`) e passa pelo "checkout" do provedor dev, que não cobra. Para
+voltar a cobrar: `CHAT_PAGAMENTO=stripe` no Railway e `VITE_CHAT_GRATIS=0` no build.
 
 ## 3a. Página de espera (antes do lançamento)
 

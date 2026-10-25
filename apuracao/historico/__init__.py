@@ -6,6 +6,7 @@ Camadas:
   etl       -> CSV (latin-1, ';') -> Parquet particionado em data/historico/parquet/
   consulta  -> consultas prontas sobre o lake Parquet (DuckDB)
 """
+
 from __future__ import annotations
 
 import os
@@ -24,8 +25,8 @@ __all__ = [
 # Raiz do projeto `apuracao/` (pai deste pacote). Pode ser sobrescrita por env.
 RAIZ = Path(os.environ.get("APURACAO_RAIZ", Path(__file__).resolve().parent.parent))
 DATA_DIR = Path(os.environ.get("APURACAO_HISTORICO_DIR", RAIZ / "data" / "historico"))
-RAW_DIR = DATA_DIR / "raw"            # dados brutos NÃO confiáveis (ZIP/CSV do TSE)
-PARQUET_DIR = DATA_DIR / "parquet"    # lake normalizado
+RAW_DIR = DATA_DIR / "raw"  # dados brutos NÃO confiáveis (ZIP/CSV do TSE)
+PARQUET_DIR = DATA_DIR / "parquet"  # lake normalizado
 CATALOGO_DIR = DATA_DIR / "catalogo"  # cache do JSON do CKAN
 REF_MUNICIPIOS = RAIZ / "data" / "ref" / "tse-municipios-2026.json"
 
@@ -63,7 +64,22 @@ TABELAS: dict[str, dict] = {
         "por_uf": False,
         "descricao": "Detalhe da apuração por seção eleitoral",
     },
+    # Candidaturas (dataset `candidatos-{ano}` no CKAN): quem concorreu, por que cargo/partido,
+    # e o resultado (eleito/não eleito). Base do "histórico político" de cada pessoa.
+    "consulta_cand": {
+        "arquivo": "consulta_cand_{ano}.zip",
+        "pasta_cdn": "consulta_cand",
+        "por_uf": False,
+        "dataset": "candidatos",
+        "descricao": "Candidaturas por eleição (cargo, partido, situação, resultado)",
+    },
 }
+
+
+def familia_dataset(tabela: str) -> str:
+    """Prefixo do dataset no CKAN: `resultados` (padrão) ou `candidatos`."""
+    return TABELAS[tabela].get("dataset", "resultados")
+
 
 CDN_BASE = "https://cdn.tse.jus.br/estatistica/sead/odsele"
 
