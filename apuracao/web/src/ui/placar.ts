@@ -44,7 +44,7 @@ export function montarPlacar(raiz: HTMLElement, store: Store): void {
     const pct = el('span', { class: 'big' });
     const votos = el('div', { class: 'votes num' });
     const ribbon = el('span', { class: 'ribbon', text: 'Eleito', hidden: true });
-    const barra = el('i');
+    const barra = el('i', {}, el('span', { class: 'rb-lbl num', 'aria-hidden': 'true' }));
     const raizLado = el(
       'div',
       { class: `cand ${dir}` },
@@ -142,6 +142,9 @@ export function montarPlacar(raiz: HTMLElement, store: Store): void {
       contar(L.pct, p, (n) => fmtPct(n));
       contar(L.votos, v, (n) => `${fmtInt(n)} votos`);
       L.barra.style.flexBasis = `${p}%`;
+      const lbl = L.barra.firstElementChild as HTMLElement;
+      lbl.textContent = fmtPct(p, 1);
+      lbl.hidden = p < 12; // segmento estreito demais para o rótulo caber
       const eleito = br.definido && /eleit[oa]/i.test(br.situacao[store.meta.cands[ci]] ?? '') && !/não/i.test(br.situacao[store.meta.cands[ci]] ?? '');
       L.ribbon.hidden = !eleito;
       pulsar(L.pct);
